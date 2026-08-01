@@ -14,8 +14,10 @@ web view.
 | Demo mode | on by default, so the app runs today |
 | Donations — Stripe rail | code done, needs the server endpoint |
 | Donations — Apple/Google rail | code done, needs store products + server verification |
-| **iOS build** | **working** — builds, installs and runs on the simulator (Xcode 26.6) |
-| Android / macOS / Windows builds | not built yet — see below |
+| **iOS build** | **working** — runs on simulator (Xcode 26.6) |
+| **Android build** | **working** — APK runs on emulator (SDK 36) |
+| **macOS build** | **working** — runs as a desktop app |
+| Windows build | not built — needs a Windows machine |
 
 ## Run it
 
@@ -64,7 +66,25 @@ before shipping a layout change.
   flutter config --jdk-dir "/Applications/Android Studio.app/Contents/jbr/Contents/Home"
   ```
 
-- **macOS** — should build now that Xcode is present; untested.
+  Then, for the emulator:
+
+  ```bash
+  sdkmanager "system-images;android-36;google_apis_playstore;arm64-v8a"
+  avdmanager create avd -n sejbo_pixel -k "system-images;android-36;google_apis_playstore;arm64-v8a"
+  emulator -avd sejbo_pixel -no-snapshot -read-only
+  ```
+
+  `-read-only` matters: a crashed emulator leaves `*.lock` files in
+  `~/.android/avd/<name>.avd/`, and the next launch dies with "Running multiple
+  emulators with the same AVD". Delete the locks or pass the flag.
+
+  The emulator also nags that `adb` is obsolete. It is not fixable —
+  37.0.1 is the newest platform-tools Google publishes, and the emulator ships
+  on a faster train. Tick "never show again".
+
+- **macOS** — working. `flutter build macos --debug`. The `in_app_purchase`
+  plugin emits StoreKit 1 deprecation warnings on macOS 15+; harmless today,
+  but it will need a plugin bump before shipping paid tips.
 - **Windows** — cannot be cross-compiled from macOS. Needs a Windows machine
   with Visual Studio and the "Desktop development with C++" workload.
 
