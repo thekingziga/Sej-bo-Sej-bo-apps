@@ -98,7 +98,10 @@ class _UploadScreenState extends State<UploadScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              // stretch, not start: the picker zone and the image preview size
+              // themselves to their content, so with `start` they came out
+              // narrower than the text fields below and the column looked ragged.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _PickerZone(
                   preview: _preview,

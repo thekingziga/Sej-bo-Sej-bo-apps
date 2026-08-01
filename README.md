@@ -14,7 +14,8 @@ web view.
 | Demo mode | on by default, so the app runs today |
 | Donations — Stripe rail | code done, needs the server endpoint |
 | Donations — Apple/Google rail | code done, needs store products + server verification |
-| iOS / Android / macOS / Windows builds | **not built** — toolchains not installed on this Mac |
+| **iOS build** | **working** — builds, installs and runs on the simulator (Xcode 26.6) |
+| Android / macOS / Windows builds | not built yet — see below |
 
 ## Run it
 
@@ -39,14 +40,31 @@ The widget tests pump every screen at 360×640 and fail on any `RenderFlex`
 overflow — that is what caught the gallery and upload layout bugs. Run them
 before shipping a layout change.
 
-## What you still need to install
+## Toolchain
 
-Nothing here can build iOS, Android, macOS or Windows binaries yet:
+- **iOS** — working. Xcode 26.6. Plugins resolve via Swift Package Manager, so
+  CocoaPods is not needed for this project.
 
-- **iOS + macOS** — Xcode from the App Store (~15 GB), then
-  `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`,
-  `sudo xcodebuild -runFirstLaunch`, and CocoaPods (`brew install cocoapods`).
-- **Android** — Android Studio, which brings the SDK and a JDK.
+  ```bash
+  flutter build ios --simulator --debug
+  xcrun simctl install booted build/ios/iphonesimulator/Runner.app
+  xcrun simctl launch booted fyi.sejbosejbo
+  ```
+
+  A physical device additionally needs a signing team set in Xcode.
+
+- **Android** — needs the **Android SDK Command-line Tools**, which Android
+  Studio does not install by default. Settings → Languages & Frameworks →
+  Android SDK → *SDK Tools* tab → tick "Android SDK Command-line Tools
+  (latest)". Without it there is no `sdkmanager`, and
+  `flutter doctor --android-licenses` (a wrapper around it) cannot run.
+  The JDK bundled with Android Studio is enough:
+
+  ```bash
+  flutter config --jdk-dir "/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+  ```
+
+- **macOS** — should build now that Xcode is present; untested.
 - **Windows** — cannot be cross-compiled from macOS. Needs a Windows machine
   with Visual Studio and the "Desktop development with C++" workload.
 
