@@ -9,6 +9,33 @@ I need to add a JSON API to this website so a Flutter app (iOS, Android, macOS,
 Windows) can talk to it. The app is already built against the exact contract
 below — **do not change field names, types, or URLs**, or the app breaks.
 
+## How this thing is deployed (read first)
+
+- Node + Express, no framework, HTML generated as template strings in
+  `server.js`. SQLite via Node's built-in `node:sqlite`.
+- Runs in Docker on a Raspberry Pi. `data/` (SQLite) and `uploads/` (images) are
+  bind mounts on the host — never inside the container, never delete them.
+- **Public on `https://sejbosejbo.fyi` behind Cloudflare.** TLS is already
+  working; plain HTTP returns 503. Nothing to do for certificates.
+
+Everything lives on the **same origin**, `https://sejbosejbo.fyi/api/v1`. Do not
+move the API to a subdomain: the app's deep links point at `sejbosejbo.fyi/post/…`,
+and the association files that make those work must be served from that exact
+host, so a subdomain would only add a second thing to configure.
+
+### Cloudflare gotchas that will bite
+
+1. **`req.ip` is Cloudflare's IP, not the user's.** Rate limiting as-is would
+   throttle every user as one. Add `app.set('trust proxy', true)` and read the
+   real address from the `CF-Connecting-IP` header, falling back to `req.ip`.
+   Get this right or the vote and upload limits below are worse than useless —
+   one busy user would lock out everyone.
+2. **Send `Cache-Control: no-store` on all `/api/v1` responses.** Cloudflare
+   currently reports `cf-cache-status: DYNAMIC`, but any future caching rule
+   would serve stale vote counts and feeds.
+3. `/.well-known/*` must be served directly, uncached, with
+   `Content-Type: application/json`, and must not redirect.
+
 ## Ground rules
 
 - Everything lives under `/api/v1`. The existing HTML routes must keep working
@@ -272,6 +299,48 @@ idempotent — Stripe and Apple both redeliver, and without it you double-count.
   with **placeholders only** in the committed example file.
 - Bump the version and rebuild per the README's build section.
 
+## Deep links
+
+The app registers `https://sejbosejbo.fyi/post/<id>` so tapping a shared link
+opens the app instead of the browser. That requires two files served from this
+site, over HTTPS, with `Content-Type: application/json`, no redirect, no auth:
+
+### `/.well-known/apple-app-site-association`
+
+No file extension. Serve it as JSON anyway.
+
+```json
+{
+  "applinks": {
+    "details": [
+      { "appIDs": ["TEAMID.fyi.sejbosejbo"], "components": [{ "/": "/post/*" }] }
+    ]
+  }
+}
+```
+
+### `/.well-known/assetlinks.json`
+
+```json
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "fyi.sejbosejbo",
+      "sha256_cert_fingerprints": ["SIGNING_CERT_SHA256"]
+    }
+  }
+]
+```
+
+**Both files need values that do not exist yet** — `TEAMID` comes from an Apple
+Developer account, and `SIGNING_CERT_SHA256` from the Android signing key. Build
+the routes now and read the values from env vars (`APPLE_TEAM_ID`,
+`ANDROID_CERT_SHA256`), returning 404 when unset. Until they are filled in,
+shared links simply open the website — which is a perfectly fine fallback, so
+do not block anything else on this.
+
 ## Website UI changes (not just the API)
 
 The app is not the only client. Do these on the site itself too, or the two
@@ -320,7 +389,28 @@ The gallery already paginates; add `?sort=top` and a link, matching the app's
 NEWEST / TOP / FEATURED switch. Reuse the same ordering rules as the API so a
 post cannot rank differently in the two places.
 
+## Order of work
+
+Do it in this order so I can point the app at a working API as early as
+possible:
+
+1. `GET /feed`, `GET /posts`, `GET /posts/:id`, `GET /random-phrase` — read-only,
+   unblocks the whole app immediately.
+2. `POST /posts` — upload, with the rate limit.
+3. Voting: the `votes` table, `POST /posts/:id/vote`, and `sort=top`.
+4. Website UI: clipboard paste, vote buttons, top view.
+5. Donations (Stripe + receipt verification) and the deep-link files last —
+   both need external accounts that may not exist yet.
+
 ## When you are done
 
-Tell me the base URL to point the app at, and confirm each endpoint with a
-`curl` example showing real output.
+- Tell me the base URL to point the app at. I will build with
+  `--dart-define=API_BASE_URL=https://sejbosejbo.fyi`.
+- Confirm each endpoint with a real `curl` against the live site, showing actual
+  output — not a local-only test. Cloudflare sits in front, so something can
+  pass locally and still fail in production.
+- Confirm `CF-Connecting-IP` is being used for rate limiting, by showing that
+  two different clients are counted separately.
+- Bump the version and rebuild the Docker image per the README, then deploy with
+  `docker compose pull && docker compose up -d` on the Pi. Uploads and the
+  visit counter must survive — they are bind mounts, so they will, but verify.
