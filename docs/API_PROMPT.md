@@ -330,7 +330,7 @@ The Android fingerprint is known — this is the real value, taken from the
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "fyi.sejbosejbo",
+      "package_name": "com.thekingziga.sejbosejbo",
       "sha256_cert_fingerprints": [
         "55:B5:A8:A8:F3:17:5A:EE:C2:1A:46:F4:48:01:3C:8B:2C:94:E8:36:84:A4:BC:48:FC:2B:4D:DF:E5:20:71:29"
       ]

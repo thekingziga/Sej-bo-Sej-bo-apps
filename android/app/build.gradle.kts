@@ -22,7 +22,7 @@ val hasReleaseKeystore =
     keystorePropertiesFile.exists() && keystoreProperties.getProperty("storeFile") != null
 
 android {
-    namespace = "fyi.sejbosejbo"
+    namespace = "com.thekingziga.sejbosejbo"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -32,7 +32,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "fyi.sejbosejbo"
+        applicationId = "com.thekingziga.sejbosejbo"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

@@ -50,7 +50,7 @@ before shipping a layout change.
   ```bash
   flutter build ios --simulator --debug
   xcrun simctl install booted build/ios/iphonesimulator/Runner.app
-  xcrun simctl launch booted fyi.sejbosejbo
+  xcrun simctl launch booted fyi.sejbosejbo   # iOS bundle id, unchanged
   ```
 
   A physical device additionally needs a signing team set in Xcode.
@@ -142,7 +142,20 @@ The server side does not exist yet. `docs/API_PROMPT.md` is a self-contained
 prompt — paste it into a Claude Code session opened on the website repo and it
 will build the endpoints this app already expects.
 
-Bundle id / application id is `fyi.sejbosejbo` on every platform.
+Identifiers differ per platform, deliberately:
+
+| Platform | Identifier |
+|---|---|
+| Android (Play) | `com.thekingziga.sejbosejbo` |
+| iOS / macOS | `fyi.sejbosejbo` |
+
+Android had to change because the Play Console listing was created as
+`com.thekingziga.sejbosejbo`, and Play matches the package name inside the
+bundle's manifest against the registered app - renaming the .aab file does
+nothing. The two do not need to agree across stores.
+
+In-app purchase product ids stay `fyi.sejbosejbo.tip.*` on both stores. Product
+ids are arbitrary strings scoped to the app, not tied to the package name.
 
 ## Assets
 
