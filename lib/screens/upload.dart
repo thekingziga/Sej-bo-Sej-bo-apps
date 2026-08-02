@@ -131,6 +131,13 @@ class _UploadScreenState extends State<UploadScreen> {
               children: [
                 _PickerZone(
                   preview: _preview,
+                  // image_picker only implements the camera source on iOS and
+                  // Android. On Windows/macOS/Linux the button was showing but
+                  // could never work, so hide it rather than offer a dead end.
+                  showCamera:
+                      !kIsWeb &&
+                      (defaultTargetPlatform == TargetPlatform.iOS ||
+                          defaultTargetPlatform == TargetPlatform.android),
                   onCamera: () => _pick(ImageSource.camera),
                   onGallery: () => _pick(ImageSource.gallery),
                   onPaste: _pasteFromClipboard,
@@ -201,6 +208,7 @@ class _UploadScreenState extends State<UploadScreen> {
 class _PickerZone extends StatelessWidget {
   const _PickerZone({
     required this.preview,
+    required this.showCamera,
     required this.onCamera,
     required this.onGallery,
     required this.onPaste,
@@ -208,6 +216,7 @@ class _PickerZone extends StatelessWidget {
   });
 
   final Uint8List? preview;
+  final bool showCamera;
   final VoidCallback onCamera;
   final VoidCallback onGallery;
   final VoidCallback onPaste;
@@ -290,7 +299,7 @@ class _PickerZone extends StatelessWidget {
               spacing: 10,
               runSpacing: 12,
               children: [
-                if (!kIsWeb)
+                if (showCamera)
                   BrutalButton(
                     color: Brutal.yellow,
                     onPressed: onCamera,

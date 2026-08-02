@@ -156,13 +156,22 @@ class _ShellState extends State<Shell> {
 
     return Scaffold(
       backgroundColor: Brutal.paper,
-      body: IndexedStack(
-        index: _index,
-        children: List.generate(
-          tabs.length,
-          (i) => Navigator(
-            key: _navKeys[i],
-            onGenerateRoute: (s) => MaterialPageRoute(builder: (_) => _screenFor(i)),
+      // Cap the content width on desktop. The layout is designed around a phone;
+      // stretched across a maximised Windows or macOS window the hero image grows
+      // to fill the screen and the forms become unreadably wide lines. The nav
+      // bar stays full width so the window still feels like a desktop app.
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: IndexedStack(
+            index: _index,
+            children: List.generate(
+              tabs.length,
+              (i) => Navigator(
+                key: _navKeys[i],
+                onGenerateRoute: (s) => MaterialPageRoute(builder: (_) => _screenFor(i)),
+              ),
+            ),
           ),
         ),
       ),
