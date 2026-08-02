@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
 
 import '../api.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'detail.dart';
@@ -33,8 +35,10 @@ class _UploadScreenState extends State<UploadScreen> {
     super.dispose();
   }
 
+  /// Keyed off [_preview], not [_picked]: a pasted image has bytes but no XFile,
+  /// so checking _picked would silently refuse to submit clipboard images.
   bool get _valid =>
-      _title.text.trim().isNotEmpty && (_story.text.trim().isNotEmpty || _picked != null);
+      _title.text.trim().isNotEmpty && (_story.text.trim().isNotEmpty || _preview != null);
 
   Future<void> _pick(ImageSource source) async {
     try {
@@ -52,6 +56,27 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
+  /// Paste an image straight off the system clipboard - screenshot, copy, paste.
+  /// This is the whole point on desktop, where there is no photo library.
+  Future<void> _pasteFromClipboard() async {
+    final t = L10n.of(context);
+    try {
+      final bytes = await Pasteboard.image;
+      if (!mounted) return;
+      if (bytes == null || bytes.isEmpty) {
+        setState(() => _error = t['clipboardEmpty']);
+        return;
+      }
+      setState(() {
+        _picked = null; // clipboard bytes have no XFile backing
+        _preview = bytes;
+        _error = null;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = t['clipboardEmpty']);
+    }
+  }
+
   Future<void> _submit() async {
     if (!_valid || _sending) return;
     setState(() {
@@ -60,12 +85,15 @@ class _UploadScreenState extends State<UploadScreen> {
     });
 
     try {
+      // Send raw bytes on web, and whenever the image came from the clipboard
+      // (no file on disk to point at). Otherwise stream the picked file.
+      final useBytes = kIsWeb || _picked == null;
       final post = await widget.api.createPost(
         title: _title.text.trim(),
         description: _story.text.trim(),
-        imagePath: kIsWeb ? null : _picked?.path,
-        imageBytes: kIsWeb ? _preview : null,
-        imageName: _picked?.name,
+        imagePath: useBytes ? null : _picked!.path,
+        imageBytes: useBytes ? _preview : null,
+        imageName: _picked?.name ?? 'pasted.png',
       );
       if (!mounted) return;
       setState(() {
@@ -86,15 +114,13 @@ class _UploadScreenState extends State<UploadScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = L10n.of(context);
     return SafeArea(
       bottom: false,
       child: ListView(
         padding: const EdgeInsets.only(bottom: 34),
         children: [
-          const BrandHeader(
-            title: 'Submit',
-            subtitle: 'Image, GIF, or just a cursed story. Anonymous by design.',
-          ),
+          BrandHeader(title: t['uploadTitle'], subtitle: t['uploadSub']),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
@@ -107,6 +133,7 @@ class _UploadScreenState extends State<UploadScreen> {
                   preview: _preview,
                   onCamera: () => _pick(ImageSource.camera),
                   onGallery: () => _pick(ImageSource.gallery),
+                  onPaste: _pasteFromClipboard,
                   onClear: () => setState(() {
                     _picked = null;
                     _preview = null;
@@ -114,16 +141,16 @@ class _UploadScreenState extends State<UploadScreen> {
                 ),
                 const SizedBox(height: 22),
                 _Field(
-                  label: 'Title',
-                  hint: 'Microwaved a salad',
+                  label: t['labelTitle'],
+                  hint: t['hintTitle'],
                   controller: _title,
                   maxLength: 120,
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 18),
                 _Field(
-                  label: 'Description or story',
-                  hint: 'What happened? Why was it like this?',
+                  label: t['labelStory'],
+                  hint: t['hintStory'],
                   controller: _story,
                   maxLength: 1200,
                   maxLines: 5,
@@ -132,7 +159,7 @@ class _UploadScreenState extends State<UploadScreen> {
                 const SizedBox(height: 12),
                 if (!_valid)
                   Text(
-                    'Needs a title, plus either a photo or a story.',
+                    t['needsMore'],
                     style: Brutal.body.copyWith(
                       fontSize: 13,
                       color: Brutal.ink.withValues(alpha: 0.6),
@@ -160,7 +187,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           height: 22,
                           child: CircularProgressIndicator(strokeWidth: 3, color: Brutal.ink),
                         )
-                      : const Text('SUBMIT THIS SEJBOSEJBO', style: TextStyle(fontSize: 17)),
+                      : Text(t['submitButton'], style: const TextStyle(fontSize: 17)),
                 ),
               ],
             ),
@@ -176,16 +203,19 @@ class _PickerZone extends StatelessWidget {
     required this.preview,
     required this.onCamera,
     required this.onGallery,
+    required this.onPaste,
     required this.onClear,
   });
 
   final Uint8List? preview;
   final VoidCallback onCamera;
   final VoidCallback onGallery;
+  final VoidCallback onPaste;
   final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
+    final t = L10n.of(context);
     if (preview != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,20 +231,27 @@ class _PickerZone extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
             children: [
               BrutalButton(
                 color: Brutal.cyan,
                 onPressed: onGallery,
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: const Text('CHANGE'),
+                child: Text(t['change']),
               ),
-              const SizedBox(width: 10),
+              BrutalButton(
+                color: Brutal.lime,
+                onPressed: onPaste,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Text(t['paste']),
+              ),
               BrutalButton(
                 color: Brutal.danger,
                 onPressed: onClear,
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: const Text('REMOVE'),
+                child: Text(t['remove']),
               ),
             ],
           ),
@@ -237,13 +274,13 @@ class _PickerZone extends StatelessWidget {
             const Text('📸', style: TextStyle(fontSize: 38)),
             const SizedBox(height: 10),
             Text(
-              'ADD A PHOTO OR GIF',
+              t['addPhoto'],
               textAlign: TextAlign.center,
               style: Brutal.label.copyWith(fontSize: 14),
             ),
             const SizedBox(height: 3),
             Text(
-              'optional — a story alone also counts',
+              t['addPhotoSub'],
               textAlign: TextAlign.center,
               style: Brutal.body.copyWith(fontSize: 12, color: Brutal.ink.withValues(alpha: 0.6)),
             ),
@@ -258,13 +295,19 @@ class _PickerZone extends StatelessWidget {
                     color: Brutal.yellow,
                     onPressed: onCamera,
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                    child: const Text('CAMERA'),
+                    child: Text(t['camera']),
                   ),
                 BrutalButton(
                   color: Brutal.cyan,
                   onPressed: onGallery,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                  child: const Text('LIBRARY'),
+                  child: Text(t['library']),
+                ),
+                BrutalButton(
+                  color: Brutal.lime,
+                  onPressed: onPaste,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  child: Text(t['paste']),
                 ),
               ],
             ),

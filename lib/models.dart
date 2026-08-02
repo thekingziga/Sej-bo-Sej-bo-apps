@@ -1,6 +1,16 @@
 // Wire models. These mirror docs/API_PROMPT.md exactly - if you change a field
 // here, change it there too, or the app and the website will drift apart.
 
+/// How the gallery is ordered. The value is sent to the API as `?sort=`.
+enum PostSort {
+  newest('newest'),
+  top('top'),
+  featured('featured');
+
+  const PostSort(this.wire);
+  final String wire;
+}
+
 class Post {
   const Post({
     required this.id,
@@ -11,6 +21,8 @@ class Post {
     required this.featured,
     required this.pinned,
     required this.createdAt,
+    this.upvotes = 0,
+    this.downvotes = 0,
   });
 
   final int id;
@@ -26,6 +38,30 @@ class Post {
   final bool pinned;
   final DateTime createdAt;
 
+  /// "sej bo" - yes, this really is Sejbosejbo.
+  final int upvotes;
+
+  /// "sej ne bo" - no, this does not qualify.
+  final int downvotes;
+
+  int get score => upvotes - downvotes;
+
+  String shareUrl(String base) =>
+      '${base.isEmpty ? 'https://sejbosejbo.fyi' : base}/post/$id';
+
+  Post copyWith({int? upvotes, int? downvotes}) => Post(
+    id: id,
+    title: title,
+    description: description,
+    kind: kind,
+    imageUrl: imageUrl,
+    featured: featured,
+    pinned: pinned,
+    createdAt: createdAt,
+    upvotes: upvotes ?? this.upvotes,
+    downvotes: downvotes ?? this.downvotes,
+  );
+
   /// Keyed off [kind], not [imageUrl]. If a photo post ever arrives without a
   /// usable URL - API hiccup, broken file - we still want its description shown
   /// rather than silently swallowed as if it were a text-only post.
@@ -40,7 +76,22 @@ class Post {
     featured: j['featured'] == true,
     pinned: j['pinned'] == true,
     createdAt: DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ?? DateTime.now(),
+    upvotes: (j['upvotes'] as num?)?.toInt() ?? 0,
+    downvotes: (j['downvotes'] as num?)?.toInt() ?? 0,
   );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'description': description,
+    'kind': kind,
+    'image_url': imageUrl,
+    'featured': featured,
+    'pinned': pinned,
+    'created_at': createdAt.toUtc().toIso8601String(),
+    'upvotes': upvotes,
+    'downvotes': downvotes,
+  };
 }
 
 class Stats {
@@ -57,11 +108,23 @@ class Stats {
     uploads: (j['uploads'] as num?)?.toInt() ?? 0,
     daysSinceLast: (j['days_since_last'] as num?)?.toInt(),
   );
+
+  Map<String, dynamic> toJson() => {
+    'visits': visits,
+    'uploads': uploads,
+    'days_since_last': daysSinceLast,
+  };
 }
 
 /// Everything the dashboard needs, in one round trip.
 class Feed {
-  const Feed({required this.stats, required this.quote, required this.daily, required this.posts});
+  const Feed({
+    required this.stats,
+    required this.quote,
+    required this.daily,
+    required this.posts,
+    this.top = const [],
+  });
 
   final Stats stats;
   final String quote;
@@ -70,6 +133,9 @@ class Feed {
   /// Newest first. The dashboard shows [0] as the hero and the next 3 in a grid.
   final List<Post> posts;
 
+  /// Highest scoring of all time - the Hall of Fame block.
+  final List<Post> top;
+
   factory Feed.fromJson(Map<String, dynamic> j) => Feed(
     stats: Stats.fromJson((j['stats'] ?? const {}) as Map<String, dynamic>),
     quote: (j['quote'] ?? '') as String,
@@ -77,7 +143,19 @@ class Feed {
     posts: ((j['posts'] ?? const []) as List)
         .map((e) => Post.fromJson(e as Map<String, dynamic>))
         .toList(),
+    top: ((j['top'] ?? const []) as List)
+        .map((e) => Post.fromJson(e as Map<String, dynamic>))
+        .toList(),
   );
+
+  /// Round-trips through Prefs so the dashboard can render offline.
+  Map<String, dynamic> toJson() => {
+    'stats': stats.toJson(),
+    'quote': quote,
+    'daily': daily?.toJson(),
+    'posts': posts.map((p) => p.toJson()).toList(),
+    'top': top.map((p) => p.toJson()).toList(),
+  };
 }
 
 class PostPage {

@@ -1,20 +1,29 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'donations.dart';
+import 'l10n.dart';
+import 'prefs.dart';
+import 'screens/detail.dart';
 import 'screens/donate.dart';
 import 'screens/gallery.dart';
 import 'screens/home.dart';
 import 'screens/upload.dart';
 import 'theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const SejbosejboApp());
+  final prefs = await Prefs.load();
+  runApp(SejbosejboApp(prefs: prefs));
 }
 
 class SejbosejboApp extends StatefulWidget {
-  const SejbosejboApp({super.key});
+  const SejbosejboApp({super.key, required this.prefs});
+
+  final Prefs prefs;
 
   @override
   State<SejbosejboApp> createState() => _SejbosejboAppState();
@@ -22,17 +31,53 @@ class SejbosejboApp extends StatefulWidget {
 
 class _SejbosejboAppState extends State<SejbosejboApp> {
   // Pass --dart-define=API_BASE_URL=https://sejbosejbo.fyi to leave demo mode.
-  final Api _api = Api();
+  late final Api _api = Api(prefs: widget.prefs);
   late final DonationGateway _donations = DonationGateway(_api);
+  late Lang _lang = widget.prefs.lang;
+
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  StreamSubscription<Uri>? _linkSub;
 
   @override
   void initState() {
     super.initState();
     _donations.init();
+    _initDeepLinks();
+  }
+
+  /// Handles `sejbosejbo.fyi/post/<id>` both on cold start and while running.
+  Future<void> _initDeepLinks() async {
+    try {
+      final links = AppLinks();
+      _linkSub = links.uriLinkStream.listen(_openLink, onError: (_) {});
+      final initial = await links.getInitialLink();
+      if (initial != null) _openLink(initial);
+    } catch (_) {
+      // Deep links are a nicety; never let them stop the app from starting.
+    }
+  }
+
+  void _openLink(Uri uri) {
+    final segments = uri.pathSegments;
+    final i = segments.indexOf('post');
+    if (i == -1 || i + 1 >= segments.length) return;
+    final id = int.tryParse(segments[i + 1]);
+    if (id == null) return;
+
+    _navigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => PostDetailScreen.byId(api: _api, prefs: widget.prefs, id: id)),
+    );
+  }
+
+  Future<void> _setLang(Lang l) async {
+    if (l == _lang) return;
+    setState(() => _lang = l);
+    await widget.prefs.setLang(l);
   }
 
   @override
   void dispose() {
+    _linkSub?.cancel();
     _donations.dispose();
     _api.close();
     super.dispose();
@@ -40,20 +85,26 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Sejbosejbo',
-      debugShowCheckedModeBanner: false,
-      theme: Brutal.theme(),
-      home: Shell(api: _api, donations: _donations),
+    return L10n(
+      strings: Strings.of(_lang),
+      onChange: _setLang,
+      child: MaterialApp(
+        title: 'Sejbosejbo',
+        debugShowCheckedModeBanner: false,
+        theme: Brutal.theme(),
+        navigatorKey: _navigatorKey,
+        home: Shell(api: _api, donations: _donations, prefs: widget.prefs),
+      ),
     );
   }
 }
 
 class Shell extends StatefulWidget {
-  const Shell({super.key, required this.api, required this.donations});
+  const Shell({super.key, required this.api, required this.donations, required this.prefs});
 
   final Api api;
   final DonationGateway donations;
+  final Prefs prefs;
 
   @override
   State<Shell> createState() => _ShellState();
@@ -65,13 +116,6 @@ class _ShellState extends State<Shell> {
   // Defaults to 0, so release builds are unaffected.
   int _index = const int.fromEnvironment('START_TAB').clamp(0, 3);
   final _navKeys = List.generate(4, (_) => GlobalKey<NavigatorState>());
-
-  static const _tabs = [
-    _TabSpec('HOME', Icons.bolt, Brutal.yellow),
-    _TabSpec('GALLERY', Icons.grid_view_rounded, Brutal.cyan),
-    _TabSpec('UPLOAD', Icons.add_a_photo_outlined, Brutal.pink),
-    _TabSpec('SUPPORT', Icons.favorite, Brutal.orange),
-  ];
 
   void _go(int i) {
     if (i == _index) {
@@ -85,9 +129,14 @@ class _ShellState extends State<Shell> {
   Widget _screenFor(int i) {
     switch (i) {
       case 0:
-        return HomeScreen(api: widget.api, onSeeAll: () => _go(1), onUpload: () => _go(2));
+        return HomeScreen(
+          api: widget.api,
+          prefs: widget.prefs,
+          onSeeAll: () => _go(1),
+          onUpload: () => _go(2),
+        );
       case 1:
-        return GalleryScreen(api: widget.api);
+        return GalleryScreen(api: widget.api, prefs: widget.prefs);
       case 2:
         return UploadScreen(api: widget.api);
       default:
@@ -97,19 +146,27 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
+    final t = L10n.of(context);
+    final tabs = [
+      _TabSpec(t['tabHome'], Icons.bolt, Brutal.yellow),
+      _TabSpec(t['tabGallery'], Icons.grid_view_rounded, Brutal.cyan),
+      _TabSpec(t['tabUpload'], Icons.add_a_photo_outlined, Brutal.pink),
+      _TabSpec(t['tabSupport'], Icons.favorite, Brutal.orange),
+    ];
+
     return Scaffold(
       backgroundColor: Brutal.paper,
       body: IndexedStack(
         index: _index,
         children: List.generate(
-          _tabs.length,
+          tabs.length,
           (i) => Navigator(
             key: _navKeys[i],
             onGenerateRoute: (s) => MaterialPageRoute(builder: (_) => _screenFor(i)),
           ),
         ),
       ),
-      bottomNavigationBar: _BrutalNavBar(tabs: _tabs, index: _index, onTap: _go),
+      bottomNavigationBar: _BrutalNavBar(tabs: tabs, index: _index, onTap: _go),
     );
   }
 }
@@ -185,6 +242,8 @@ class _NavItem extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               spec.label,
+              maxLines: 1,
+              overflow: TextOverflow.clip,
               style: Brutal.label.copyWith(fontSize: 10, color: Brutal.ink, letterSpacing: 0.4),
             ),
           ],

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'l10n.dart';
 
 import 'models.dart';
 import 'theme.dart';
@@ -147,22 +150,191 @@ class PostCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 7),
-              if (post.featured) ...[const BrutalTag('featured'), const SizedBox(height: 5)],
+              if (post.featured) ...[
+                BrutalTag(L10n.of(context)['featured']),
+                const SizedBox(height: 5),
+              ],
               Text(
                 post.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Brutal.heading.copyWith(fontSize: 15),
               ),
-              const SizedBox(height: 2),
-              Text(
-                relativeDate(post.createdAt),
-                style: Brutal.body.copyWith(fontSize: 12, color: Brutal.ink.withValues(alpha: 0.6)),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  // Score only, not the vote buttons: at ~184pt wide the two
+                  // chips would fall below a comfortable tap target. Voting
+                  // lives on the hero, the detail screen and the hall of fame.
+                  ScorePill(score: post.score),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      relativeDate(post.createdAt),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Brutal.body.copyWith(
+                        fontSize: 12,
+                        color: Brutal.ink.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Net score, coloured by sign. Lime when the crowd agrees it is Sejbosejbo,
+/// red when they think it is not, grey at zero.
+class ScorePill extends StatelessWidget {
+  const ScorePill({super.key, required this.score});
+
+  final int score;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = score > 0
+        ? Brutal.lime
+        : score < 0
+        ? Brutal.danger
+        : Brutal.paperDeep;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(color: color, border: Border.all(color: Brutal.ink, width: 2)),
+      child: Text(
+        score > 0 ? '+$score' : '$score',
+        style: Brutal.display.copyWith(fontSize: 13),
+      ),
+    );
+  }
+}
+
+/// SEJ BO / SEJ NE BO. Optimistic: the count moves the instant you tap and
+/// reverts if the server disagrees, because a vote that visibly lags feels broken.
+class VoteBar extends StatelessWidget {
+  const VoteBar({
+    super.key,
+    required this.post,
+    required this.myVote,
+    required this.onVote,
+    this.compact = false,
+  });
+
+  final Post post;
+
+  /// -1, 0 or 1.
+  final int myVote;
+
+  /// Receives the new value; tapping your existing choice again passes 0 (undo).
+  final ValueChanged<int> onVote;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L10n.of(context);
+    // Wrap, not Row: "SEJ NE BO" plus a five-digit count is wide, and on a
+    // 360pt phone the pair does not fit on one line inside a bordered card.
+    return Wrap(
+      spacing: compact ? 6 : 8,
+      runSpacing: 8,
+      children: [
+        _VoteChip(
+          label: t['voteUp'],
+          count: post.upvotes,
+          active: myVote == 1,
+          color: Brutal.lime,
+          compact: compact,
+          onTap: () => onVote(myVote == 1 ? 0 : 1),
+        ),
+        _VoteChip(
+          label: t['voteDown'],
+          count: post.downvotes,
+          active: myVote == -1,
+          color: Brutal.danger,
+          compact: compact,
+          onTap: () => onVote(myVote == -1 ? 0 : -1),
+        ),
+      ],
+    );
+  }
+}
+
+class _VoteChip extends StatelessWidget {
+  const _VoteChip({
+    required this.label,
+    required this.count,
+    required this.active,
+    required this.color,
+    required this.compact,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool active;
+  final Color color;
+  final bool compact;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fs = compact ? 10.0 : 13.0;
+    return Semantics(
+      button: true,
+      selected: active,
+      label: '$label $count',
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 7 : 11, vertical: compact ? 4 : 8),
+          decoration: BoxDecoration(
+            color: active ? color : Brutal.paper,
+            border: Border.all(color: Brutal.ink, width: compact ? 2 : 3),
+            boxShadow: active ? Brutal.shadow(dx: 2, dy: 2) : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: Brutal.label.copyWith(fontSize: fs)),
+              SizedBox(width: compact ? 5 : 7),
+              Text('$count', style: Brutal.display.copyWith(fontSize: fs + 3)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Rank medal for the Hall of Fame.
+class RankBadge extends StatelessWidget {
+  const RankBadge({super.key, required this.rank});
+
+  final int rank;
+
+  @override
+  Widget build(BuildContext context) {
+    const colors = [Brutal.yellow, Brutal.cyan, Brutal.orange];
+    return Container(
+      width: 30,
+      height: 30,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors[(rank - 1).clamp(0, colors.length - 1)],
+        border: Brutal.outline,
+        boxShadow: Brutal.shadow(dx: 2, dy: 2),
+      ),
+      child: Text('$rank', style: Brutal.display.copyWith(fontSize: 17)),
     );
   }
 }
@@ -185,25 +357,24 @@ class ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+    final t = L10n.of(context);
+    // Scrollable: server messages can run long, and this often renders inside a
+    // short Expanded slot where a plain centred Column would overflow.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Center(
         child: BrutalBox(
           color: Brutal.danger,
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('SEJBOSEJBO DETECTED', style: Brutal.label.copyWith(fontSize: 17)),
+              Text(t['errorTitle'], style: Brutal.label.copyWith(fontSize: 17)),
               const SizedBox(height: 8),
               Text(message, textAlign: TextAlign.center, style: Brutal.body.copyWith(fontSize: 15)),
               if (onRetry != null) ...[
                 const SizedBox(height: 16),
-                BrutalButton(
-                  onPressed: onRetry,
-                  color: Brutal.paper,
-                  child: const Text('TRY AGAIN'),
-                ),
+                BrutalButton(onPressed: onRetry, color: Brutal.paper, child: Text(t['tryAgain'])),
               ],
             ],
           ),

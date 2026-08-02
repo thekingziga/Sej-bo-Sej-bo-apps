@@ -2,32 +2,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sejbosejbo/api.dart';
 import 'package:sejbosejbo/donations.dart';
+import 'package:sejbosejbo/l10n.dart';
 import 'package:sejbosejbo/main.dart';
 import 'package:sejbosejbo/models.dart';
+import 'package:sejbosejbo/prefs.dart';
 import 'package:sejbosejbo/screens/detail.dart';
 import 'package:sejbosejbo/theme.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// A widget test fails on a RenderFlex overflow, so simply pumping every screen
 /// at several phone sizes is what guards the layout - that is how the gallery's
 /// featured-card overflow was caught.
 void main() {
-  Future<void> pumpApp(WidgetTester tester, {Size size = const Size(414, 896)}) async {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  Future<Prefs> pumpApp(
+    WidgetTester tester, {
+    Size size = const Size(414, 896),
+    Lang lang = Lang.en,
+  }) async {
     tester.view.physicalSize = size * tester.view.devicePixelRatio;
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
 
-    final api = Api(useDemoData: true);
+    final prefs = await Prefs.load();
+    final api = Api(useDemoData: true, prefs: prefs);
     addTearDown(api.close);
     final donations = DonationGateway(api);
     addTearDown(donations.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(theme: Brutal.theme(), home: Shell(api: api, donations: donations)),
+      L10n(
+        strings: Strings.of(lang),
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: Shell(api: api, donations: donations, prefs: prefs),
+        ),
+      ),
     );
     // Demo endpoints are deliberately delayed; settle past them.
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump(const Duration(milliseconds: 600));
+    return prefs;
   }
 
   testWidgets('shell renders with all four tabs', (tester) async {
@@ -68,7 +86,56 @@ void main() {
     }
 
     expect(find.byType(PostDetailScreen), findsOneWidget);
+    expect(find.text('SHARE'), findsOneWidget);
+
+    // The stamp is the last thing in a lazily built ListView, so it is not in
+    // the tree until scrolled to.
+    await tester.dragUntilVisible(
+      find.textContaining('OFFICIALLY'),
+      find.byType(ListView).last,
+      const Offset(0, -250),
+    );
     expect(find.textContaining('OFFICIALLY'), findsOneWidget);
+  });
+
+  testWidgets('hall of fame is ordered by score, highest first', (tester) async {
+    await pumpApp(tester);
+
+    // The dashboard ListView builds lazily, so the section does not exist in
+    // the tree until it is scrolled near.
+    await tester.dragUntilVisible(
+      find.text('HALL OF FAME'),
+      find.byType(ListView).first,
+      const Offset(0, -220),
+    );
+    await tester.pump();
+
+    expect(find.text('HALL OF FAME'), findsOneWidget);
+    // Demo data's runaway winner is the fridge router at +502.
+    expect(find.text('Put the router in the fridge'), findsWidgets);
+  });
+
+  testWidgets('voting on the hero updates the count and persists', (tester) async {
+    final prefs = await pumpApp(tester);
+
+    expect(find.text('128'), findsWidgets, reason: 'hero starts on 128 upvotes');
+
+    await tester.tap(find.text('SEJ BO').first);
+    await tester.pump();
+
+    expect(find.text('129'), findsWidgets, reason: 'count moves optimistically');
+    expect(prefs.voteFor(9), 1, reason: 'vote is remembered across launches');
+
+    // Drain the demo vote() delay, or the binding fails on a pending timer.
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('switching to Slovenian translates the chrome', (tester) async {
+    await pumpApp(tester, lang: Lang.sl);
+    expect(find.text('DOMOV'), findsOneWidget);
+    expect(find.text('GALERIJA'), findsOneWidget);
+    expect(find.text('NALOŽI'), findsOneWidget);
+    expect(find.text('PODPRI'), findsOneWidget);
   });
 
   group('Post model', () {

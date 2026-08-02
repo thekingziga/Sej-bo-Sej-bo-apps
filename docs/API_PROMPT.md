@@ -41,7 +41,9 @@ Used everywhere a post appears:
   "image_url": "https://sejbosejbo.fyi/uploads/1784413785433-82067194ba2c0f24.jpg",
   "featured": false,
   "pinned": false,
-  "created_at": "2026-07-19T00:29:00Z"
+  "created_at": "2026-07-19T00:29:00Z",
+  "upvotes": 128,
+  "downvotes": 6
 }
 ```
 
@@ -49,6 +51,8 @@ Used everywhere a post appears:
 - `image_url` is `null` for text-only posts.
 - `featured` / `pinned` are real booleans, not the 0/1 the DB stores.
 - Hidden posts (`hidden = 1`) must never appear in any endpoint.
+- `upvotes` / `downvotes` are the raw counts. Do **not** send a pre-computed
+  score; the app derives it as `upvotes - downvotes`.
 
 ## Endpoints
 
@@ -61,9 +65,13 @@ Everything the app dashboard needs in one round trip.
   "stats": { "visits": 1337, "uploads": 42, "days_since_last": 3 },
   "quote": "That's a certified Sejbosejbo.",
   "daily": { /* Post, or null */ },
-  "posts": [ /* 4 newest visible Posts, newest first */ ]
+  "posts": [ /* 4 newest visible Posts, newest first */ ],
+  "top": [ /* 3 highest-scoring Posts of all time, best first */ ]
 }
 ```
+
+`top` drives the Hall of Fame block and is ordered by `upvotes - downvotes`
+descending, tie-broken by `upvotes` descending then newest first.
 
 - `days_since_last` is whole days since the newest visible post's `created_at`,
   or `null` if there are no posts. This already exists in `server.js` as the
@@ -75,16 +83,30 @@ Everything the app dashboard needs in one round trip.
   counter is for humans on the website. Add a separate app counter if you want
   one, but do not inflate `visits`.
 
-### `GET /api/v1/posts?page=1&per_page=24&lang=en`
+### `GET /api/v1/posts?page=1&per_page=24&lang=en&sort=newest`
 
-Paginated gallery, newest first, same ordering as the website.
+Paginated gallery.
 
 ```json
 { "items": [ /* Posts */ ], "page": 1, "per_page": 24, "has_next": true }
 ```
 
+`sort` is one of:
+
+| value | ordering |
+|---|---|
+| `newest` (default) | `pinned DESC`, then newest first — same as the website |
+| `top` | `(upvotes - downvotes) DESC`, then `upvotes DESC`, then newest |
+| `featured` | only `featured = 1`, newest first |
+
+An unknown `sort` value falls back to `newest` rather than erroring.
+
 Clamp `per_page` to a max of 50. `page` is 1-based; page beyond the end returns
 an empty `items` and `has_next: false`, not a 404.
+
+**Pagination and `top` do not mix safely by accident**: if someone votes while a
+user is paging, rows shift between pages. Order by a fully deterministic key —
+include `id` as the final tie-break — so the sort is at least stable.
 
 ### `GET /api/v1/posts/:id`
 
@@ -107,6 +129,67 @@ with `{"error": "..."}`.
 **Rate limit this**: max ~5 uploads per IP per 10 minutes, returning `429` with
 `{"error": "..."}`. Right now there is nothing stopping someone scripting a
 flood of uploads straight into the Pi's SD card, and the app makes that easier.
+
+### `POST /api/v1/posts/:id/vote`
+
+The "sej bo / sej ne bo" vote. Body:
+
+```json
+{ "value": 1 }
+```
+
+`value` is `1` (sej bo — yes, this is Sejbosejbo), `-1` (sej ne bo), or `0` to
+withdraw a previous vote. Reject anything else with `400`.
+
+Returns the **full updated Post object** with fresh counts, so the app can
+replace its optimistic guess with the truth.
+
+#### Identifying the voter without accounts
+
+The app sends a random id it generated on first launch:
+
+```
+X-Device-Id: 3f9a1c...
+```
+
+Store one row per `(post_id, device_id)`. A repeat call for the same pair
+**updates** the existing row rather than inserting — that is what makes
+switching from sej bo to sej ne bo, or undoing, work.
+
+Be clear-eyed about what this is: **soft protection, not security.** Anyone can
+clear app data or forge the header and vote again. Do not present these counts
+as trustworthy. Additionally:
+
+- Rate-limit votes per IP (say 60/minute) so a script cannot trivially inflate a post.
+- Treat a missing or malformed `X-Device-Id` as `400`, not as a shared bucket —
+  otherwise every such caller collides on one row.
+- Never let `value` be summed from the client. Recompute `upvotes`/`downvotes`
+  from the votes table.
+
+#### Votes table
+
+```sql
+CREATE TABLE IF NOT EXISTS votes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+  device_id TEXT NOT NULL,
+  value INTEGER NOT NULL CHECK (value IN (-1, 1)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (post_id, device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_votes_post ON votes(post_id);
+```
+
+A `value` of `0` deletes the row rather than storing a zero — the `CHECK`
+constraint enforces that.
+
+`ON DELETE CASCADE` matters: the admin page can delete uploads, and orphaned
+votes would otherwise keep counting toward totals.
+
+Counts can be derived with a join, but if the archive grows, denormalise
+`upvotes`/`downvotes` onto `uploads` and update them in the same transaction as
+the vote. Do not compute them with a subquery per row in a list endpoint.
 
 ### `GET /api/v1/random-phrase?lang=en`
 
@@ -188,6 +271,54 @@ idempotent — Stripe and Apple both redeliver, and without it you double-count.
   credentials) need adding to `deploy/docker-compose.yml` and `.env.example` —
   with **placeholders only** in the committed example file.
 - Bump the version and rebuild per the README's build section.
+
+## Website UI changes (not just the API)
+
+The app is not the only client. Do these on the site itself too, or the two
+will visibly disagree:
+
+### 1. Paste an image from the clipboard on the upload form
+
+Screenshot → Cmd/Ctrl+V → done, without saving a file first. The app already
+does this; the website should match.
+
+Listen for `paste` on the document, pull the image out of
+`event.clipboardData.items`, and attach it to the existing file input via a
+`DataTransfer` so the normal multipart submit keeps working unchanged:
+
+```js
+document.addEventListener('paste', (e) => {
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+  if (!item) return;
+  const file = item.getAsFile();
+  if (!file) return;
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  document.querySelector('input[name="image"]').files = dt.files;
+  // then show a preview so it is obvious the paste landed
+});
+```
+
+Two things to get right:
+- Pasted files are often named `image.png` with no extension variety. The
+  existing multer `filename` callback derives the extension from
+  `originalname`, so a paste can produce an extensionless file — fall back to
+  the MIME type when the extension is empty.
+- Show a visible preview. A paste with no feedback feels broken, and the user
+  cannot tell whether it worked before submitting.
+
+### 2. Vote buttons on the website
+
+Add SEJ BO / SEJ NE BO to the post page and the gallery cards, hitting the same
+`POST /api/v1/posts/:id/vote`. The browser has no app-generated device id, so
+mint one and keep it in a cookie or `localStorage`, then send it in the same
+`X-Device-Id` header.
+
+### 3. A "top" view
+
+The gallery already paginates; add `?sort=top` and a link, matching the app's
+NEWEST / TOP / FEATURED switch. Reuse the same ordering rules as the API so a
+post cannot rank differently in the two places.
 
 ## When you are done
 

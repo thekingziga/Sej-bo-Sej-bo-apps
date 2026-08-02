@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'prefs.dart';
 
 /// Thrown for any non-2xx response or transport failure, with a message that is
 /// safe to show the user.
@@ -24,7 +25,7 @@ class ApiException implements Exception {
 /// [useDemoData] (the default when [baseUrl] is empty) and the app runs on the
 /// bundled sample feed so the UI is fully explorable.
 class Api {
-  Api({String? baseUrl, http.Client? client, bool? useDemoData})
+  Api({String? baseUrl, http.Client? client, bool? useDemoData, this.prefs})
     : baseUrl = (baseUrl ?? const String.fromEnvironment('API_BASE_URL')).trim(),
       _client = client ?? http.Client() {
     _demo = useDemoData ?? this.baseUrl.isEmpty;
@@ -34,9 +35,20 @@ class Api {
   final http.Client _client;
   late final bool _demo;
 
+  /// Optional: supplies the device id for vote dedup and backs the offline cache.
+  final Prefs? prefs;
+
   static const _timeout = Duration(seconds: 12);
 
   bool get isDemo => _demo;
+
+  /// True when the last feed() call fell back to the cache.
+  bool servedFromCache = false;
+
+  Map<String, String> get _headers => {
+    'Accept': 'application/json',
+    if (prefs != null) 'X-Device-Id': prefs!.deviceId,
+  };
 
   Uri _uri(String path, [Map<String, String>? query]) =>
       Uri.parse('$baseUrl/api/v1$path').replace(queryParameters: query);
@@ -44,9 +56,7 @@ class Api {
   Future<Map<String, dynamic>> _getJson(String path, [Map<String, String>? query]) async {
     late http.Response res;
     try {
-      res = await _client
-          .get(_uri(path, query), headers: {'Accept': 'application/json'})
-          .timeout(_timeout);
+      res = await _client.get(_uri(path, query), headers: _headers).timeout(_timeout);
     } catch (e) {
       throw ApiException('Could not reach sejbosejbo.fyi. Check your connection.');
     }
@@ -61,15 +71,68 @@ class Api {
   }
 
   Future<Feed> feed({String lang = 'en'}) async {
+    servedFromCache = false;
     if (_demo) return _demoFeed();
-    return Feed.fromJson(await _getJson('/feed', {'lang': lang}));
+
+    try {
+      final json = await _getJson('/feed', {'lang': lang});
+      await prefs?.cacheFeed(json);
+      return Feed.fromJson(json);
+    } on ApiException {
+      // Offline or server down: fall back to whatever we last saw rather than
+      // dumping the user on an error screen. Rethrows if there is no cache.
+      final cached = prefs?.cachedFeed;
+      if (cached == null) rethrow;
+      servedFromCache = true;
+      return Feed.fromJson(cached);
+    }
   }
 
-  Future<PostPage> posts({int page = 1, int perPage = 24, String lang = 'en'}) async {
-    if (_demo) return _demoPage(page);
+  Future<PostPage> posts({
+    int page = 1,
+    int perPage = 24,
+    String lang = 'en',
+    PostSort sort = PostSort.newest,
+  }) async {
+    if (_demo) return _demoPage(page, sort);
     return PostPage.fromJson(
-      await _getJson('/posts', {'page': '$page', 'per_page': '$perPage', 'lang': lang}),
+      await _getJson('/posts', {
+        'page': '$page',
+        'per_page': '$perPage',
+        'lang': lang,
+        'sort': sort.wire,
+      }),
     );
+  }
+
+  /// Casts or clears a vote. [value] is 1 ("sej bo"), -1 ("sej ne bo") or 0 to
+  /// undo. Returns the post with the server's authoritative counts.
+  Future<Post> vote(int postId, int value) async {
+    if (_demo) {
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      final p = _demoPosts.firstWhere((e) => e.id == postId);
+      return p.copyWith(
+        upvotes: p.upvotes + (value == 1 ? 1 : 0),
+        downvotes: p.downvotes + (value == -1 ? 1 : 0),
+      );
+    }
+
+    late http.Response res;
+    try {
+      res = await _client
+          .post(
+            _uri('/posts/$postId/vote'),
+            headers: {..._headers, 'Content-Type': 'application/json'},
+            body: jsonEncode({'value': value}),
+          )
+          .timeout(_timeout);
+    } catch (_) {
+      throw ApiException('Could not register your vote. Check your connection.');
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException('Vote rejected (${res.statusCode}).', statusCode: res.statusCode);
+    }
+    return Post.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
 
   Future<String> randomPhrase({String lang = 'en'}) async {
@@ -201,6 +264,8 @@ class Api {
     bool img = true,
     int daysAgo = 0,
     bool feat = false,
+    int up = 0,
+    int down = 0,
   }) => Post(
     id: id,
     title: title,
@@ -210,6 +275,8 @@ class Api {
     featured: feat,
     pinned: false,
     createdAt: _now.subtract(Duration(days: daysAgo, hours: id * 3)),
+    upvotes: up,
+    downvotes: down,
   );
 
   static final _demoPosts = <Post>[
@@ -219,12 +286,16 @@ class Api {
       'It was warm. It was wrong. It was Sejbosejbo.',
       daysAgo: 0,
       feat: true,
+      up: 128,
+      down: 6,
     ),
     _p(
       8,
       'Installed Chrome to download Edge',
       'Then installed Edge to download Chrome.',
       daysAgo: 1,
+      up: 342,
+      down: 11,
     ),
     _p(
       7,
@@ -232,16 +303,50 @@ class Api {
       'He was serious. That is the problem.',
       img: false,
       daysAgo: 2,
+      up: 89,
+      down: 24,
     ),
-    _p(6, 'Put the router in the fridge', 'To cool down the internet.', daysAgo: 3),
-    _p(5, 'Printed an email to scan it', 'And then emailed the scan back.', img: false, daysAgo: 5),
-    _p(4, 'Bought a screen protector for a mirror', 'No further questions.', daysAgo: 8),
-    _p(3, 'Googled "how to google"', 'It worked, which is the tragedy.', img: false, daysAgo: 11),
+    _p(
+      6,
+      'Put the router in the fridge',
+      'To cool down the internet.',
+      daysAgo: 3,
+      up: 511,
+      down: 9,
+    ),
+    _p(
+      5,
+      'Printed an email to scan it',
+      'And then emailed the scan back.',
+      img: false,
+      daysAgo: 5,
+      up: 203,
+      down: 41,
+    ),
+    _p(
+      4,
+      'Bought a screen protector for a mirror',
+      'No further questions.',
+      daysAgo: 8,
+      up: 77,
+      down: 3,
+    ),
+    _p(
+      3,
+      'Googled "how to google"',
+      'It worked, which is the tragedy.',
+      img: false,
+      daysAgo: 11,
+      up: 156,
+      down: 12,
+    ),
     _p(
       2,
       'Charged a wireless mouse to use it wirelessly',
       'With a cable. For six hours.',
       daysAgo: 14,
+      up: 64,
+      down: 18,
     ),
     _p(
       1,
@@ -249,6 +354,8 @@ class Api {
       'Still going. Send help.',
       img: false,
       daysAgo: 21,
+      up: 22,
+      down: 47,
     ),
   ];
 
@@ -265,21 +372,32 @@ class Api {
       quote: "That's a certified Sejbosejbo.",
       daily: _demoPosts[2],
       posts: _demoPosts.take(4).toList(),
+      top: _demoSorted(PostSort.top).take(3).toList(),
     );
   }
 
-  Future<PostPage> _demoPage(int page) async {
+  static List<Post> _demoSorted(PostSort sort) {
+    final list = [..._demoPosts];
+    switch (sort) {
+      case PostSort.newest:
+        break; // already newest-first
+      case PostSort.top:
+        list.sort((a, b) => b.score.compareTo(a.score));
+      case PostSort.featured:
+        list.retainWhere((p) => p.featured);
+    }
+    return list;
+  }
+
+  Future<PostPage> _demoPage(int page, PostSort sort) async {
     await Future<void>.delayed(const Duration(milliseconds: 380));
+    final source = _demoSorted(sort);
     const per = 6;
     final start = (page - 1) * per;
-    if (start >= _demoPosts.length) {
+    if (start >= source.length) {
       return PostPage(items: const [], page: page, hasNext: false);
     }
-    final end = (start + per).clamp(0, _demoPosts.length);
-    return PostPage(
-      items: _demoPosts.sublist(start, end),
-      page: page,
-      hasNext: end < _demoPosts.length,
-    );
+    final end = (start + per).clamp(0, source.length);
+    return PostPage(items: source.sublist(start, end), page: page, hasNext: end < source.length);
   }
 }
