@@ -321,6 +321,9 @@ No file extension. Serve it as JSON anyway.
 
 ### `/.well-known/assetlinks.json`
 
+The Android fingerprint is known — this is the real value, taken from the
+`deployment_cert.der` that Play App Signing issued for `fyi.sejbosejbo`:
+
 ```json
 [
   {
@@ -328,18 +331,24 @@ No file extension. Serve it as JSON anyway.
     "target": {
       "namespace": "android_app",
       "package_name": "fyi.sejbosejbo",
-      "sha256_cert_fingerprints": ["SIGNING_CERT_SHA256"]
+      "sha256_cert_fingerprints": [
+        "55:B5:A8:A8:F3:17:5A:EE:C2:1A:46:F4:48:01:3C:8B:2C:94:E8:36:84:A4:BC:48:FC:2B:4D:DF:E5:20:71:29"
+      ]
     }
   }
 ]
 ```
 
-**Both files need values that do not exist yet** — `TEAMID` comes from an Apple
-Developer account, and `SIGNING_CERT_SHA256` from the Android signing key. Build
-the routes now and read the values from env vars (`APPLE_TEAM_ID`,
-`ANDROID_CERT_SHA256`), returning 404 when unset. Until they are filled in,
-shared links simply open the website — which is a perfectly fine fallback, so
-do not block anything else on this.
+It has to be the **app signing** certificate, not the upload certificate. With
+Play App Signing, Google re-signs the bundle with its own key before delivery,
+so the certificate on the installed app — the one Android checks during link
+verification — is Google's, not the one the upload was signed with. Using the
+upload fingerprint here is a common mistake and fails silently: links just keep
+opening the browser with no error anywhere.
+
+The Apple half still needs `TEAMID` from an Apple Developer account. Read it
+from an env var (`APPLE_TEAM_ID`) and return 404 while unset; shared links then
+open the website, which is a fine fallback.
 
 ## Website UI changes (not just the API)
 

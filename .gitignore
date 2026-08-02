@@ -43,3 +43,16 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Signing material - NEVER commit. This repository is public, and a leaked
+# upload key cannot be un-leaked; Google requires a key reset and every future
+# release has to be signed with the replacement. android/.gitignore covers the
+# usual paths, these catch the rest wherever they land.
+*.jks
+*.keystore
+*.p12
+*.p8
+key.properties
+keystore.properties
+**/key.properties
+**/keystore.properties
