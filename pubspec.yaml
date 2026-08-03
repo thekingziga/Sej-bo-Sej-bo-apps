@@ -1,7 +1,7 @@
 name: sejbosejbo
 description: "Sejbosejbo - certify the world's dumbest moments."
 publish_to: 'none'
-version: 1.0.0+2
+version: 1.0.0+3
 
 environment:
   sdk: ^3.12.2
@@ -19,6 +19,7 @@ dependencies:
   pasteboard: ^0.5.0
   share_plus: ^13.3.0
   app_links: ^7.2.1
+  http_parser: ^4.1.2
 
 dev_dependencies:
   flutter_test:

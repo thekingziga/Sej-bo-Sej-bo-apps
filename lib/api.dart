@@ -3,6 +3,7 @@ import 'dart:io' show File;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'models.dart';
 import 'prefs.dart';
@@ -166,17 +167,39 @@ class Api {
       ..fields['title'] = title
       ..fields['description'] = description;
 
+    // The content type must be set explicitly. package:http defaults every
+    // multipart file to application/octet-stream, and the server's filter only
+    // accepts image/jpeg|png|gif|webp - so uploads were rejected with "Only
+    // images and GIFs are allowed" no matter what the user actually picked.
     if (imageBytes != null) {
       req.files.add(
-        http.MultipartFile.fromBytes('image', imageBytes, filename: imageName ?? 'upload.jpg'),
+        http.MultipartFile.fromBytes(
+          'image',
+          imageBytes,
+          filename: imageName ?? 'upload.jpg',
+          contentType: _sniffImageType(imageBytes),
+        ),
       );
     } else if (imagePath != null && !kIsWeb) {
-      req.files.add(await http.MultipartFile.fromPath('image', File(imagePath).path));
+      final file = File(imagePath);
+      // Sniff the magic bytes rather than trusting the extension: the picker
+      // can hand back .jpg for a file that is actually a PNG or HEIC-converted.
+      final head = await file.openRead(0, 16).expand((c) => c).toList();
+      req.files.add(
+        await http.MultipartFile.fromPath(
+          'image',
+          file.path,
+          contentType: _sniffImageType(Uint8List.fromList(head)),
+        ),
+      );
     }
 
     late http.StreamedResponse streamed;
     try {
-      streamed = await req.send().timeout(const Duration(seconds: 60));
+      // _client.send, not req.send(): BaseRequest.send() spins up its own
+      // one-shot Client, which bypasses the injected client (so uploads could
+      // not be tested) and discards the connection pool on every upload.
+      streamed = await _client.send(req).timeout(const Duration(seconds: 60));
     } catch (_) {
       throw ApiException('Upload failed. Check your connection and try again.');
     }
@@ -238,6 +261,33 @@ class Api {
       // Non-fatal: the store already took the money and the plugin will replay
       // unverified purchases on next launch.
     }
+  }
+
+  /// Identifies an image from its magic bytes. Falls back to JPEG, which is
+  /// what phone cameras produce and what the server accepts most often - but
+  /// the sniff should succeed for anything the picker or clipboard hands over.
+  static MediaType _sniffImageType(Uint8List b) {
+    bool starts(List<int> sig) {
+      if (b.length < sig.length) return false;
+      for (var i = 0; i < sig.length; i++) {
+        if (b[i] != sig[i]) return false;
+      }
+      return true;
+    }
+
+    if (starts([0x89, 0x50, 0x4E, 0x47])) return MediaType('image', 'png');
+    if (starts([0x47, 0x49, 0x46, 0x38])) return MediaType('image', 'gif');
+    if (starts([0xFF, 0xD8, 0xFF])) return MediaType('image', 'jpeg');
+    // WEBP is "RIFF" .... "WEBP" at offset 8.
+    if (starts([0x52, 0x49, 0x46, 0x46]) &&
+        b.length >= 12 &&
+        b[8] == 0x57 &&
+        b[9] == 0x45 &&
+        b[10] == 0x42 &&
+        b[11] == 0x50) {
+      return MediaType('image', 'webp');
+    }
+    return MediaType('image', 'jpeg');
   }
 
   void close() => _client.close();

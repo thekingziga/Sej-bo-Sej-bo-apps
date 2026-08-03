@@ -1,4 +1,9 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sejbosejbo/api.dart';
 import 'package:sejbosejbo/donations.dart';
@@ -14,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// at several phone sizes is what guards the layout - that is how the gallery's
 /// featured-card overflow was caught.
 void main() {
+  _uploadContentTypeTests();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<Prefs> pumpApp(
@@ -190,6 +196,64 @@ void main() {
       final ids = kDonationTiers.map((t) => t.storeProductId).toSet();
       expect(ids.length, kDonationTiers.length);
       expect(ids.every((id) => id.startsWith('fyi.sejbosejbo.tip.')), isTrue);
+    });
+  });
+}
+
+/// Regression guard for the upload MIME bug: package:http defaults multipart
+/// files to application/octet-stream, which the server rejects outright with
+/// "Only images and GIFs are allowed right now."
+void _uploadContentTypeTests() {
+  group('upload content type', () {
+    late List<http.BaseRequest> sent;
+    late Api api;
+
+    setUp(() {
+      sent = [];
+      api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient.streaming((req, bytes) async {
+          sent.add(req);
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(jsonEncode({
+              'id': 1,
+              'title': 't',
+              'kind': 'image',
+              'created_at': '2026-01-01T00:00:00Z',
+            }))),
+            201,
+          );
+        }),
+      );
+    });
+
+    Future<String> contentTypeFor(List<int> magic) async {
+      await api.createPost(
+        title: 't',
+        description: '',
+        imageBytes: Uint8List.fromList([...magic, ...List.filled(32, 0)]),
+        imageName: 'whatever.bin',
+      );
+      final f = (sent.last as http.MultipartRequest).files.single;
+      return f.contentType.toString();
+    }
+
+    test('JPEG magic bytes are sent as image/jpeg', () async {
+      expect(await contentTypeFor([0xFF, 0xD8, 0xFF]), 'image/jpeg');
+    });
+
+    test('PNG magic bytes are sent as image/png', () async {
+      expect(await contentTypeFor([0x89, 0x50, 0x4E, 0x47]), 'image/png');
+    });
+
+    test('GIF magic bytes are sent as image/gif', () async {
+      expect(await contentTypeFor([0x47, 0x49, 0x46, 0x38]), 'image/gif');
+    });
+
+    test('never sends application/octet-stream', () async {
+      final ct = await contentTypeFor([0xFF, 0xD8, 0xFF]);
+      expect(ct, isNot(contains('octet-stream')));
     });
   });
 }
