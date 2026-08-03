@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// featured-card overflow was caught.
 void main() {
   _uploadContentTypeTests();
+  _reportTests();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<Prefs> pumpApp(
@@ -254,6 +255,72 @@ void _uploadContentTypeTests() {
     test('never sends application/octet-stream', () async {
       final ct = await contentTypeFor([0xFF, 0xD8, 0xFF]);
       expect(ct, isNot(contains('octet-stream')));
+    });
+  });
+}
+
+/// The report endpoint is a store requirement (Play UGC policy, Apple 1.2), so
+/// its wire format and failure handling are worth pinning down.
+void _reportTests() {
+  group('report', () {
+    late List<http.Request> sent;
+    late Api api;
+
+    Api build(int status, String body) {
+      sent = [];
+      return Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent.add(req);
+          return http.Response(body, status);
+        }),
+      );
+    }
+
+    test('posts the documented shape and trims details to 500 chars', () async {
+      api = build(201, '{"ok":true}');
+      await api.reportPost(7, ReportReason.harassment, details: 'x' * 900);
+
+      expect(sent.single.url.path, '/api/v1/posts/7/report');
+      final body = jsonDecode(sent.single.body) as Map<String, dynamic>;
+      expect(body['reason'], 'harassment');
+      expect((body['details'] as String).length, 500);
+    });
+
+    test('omits details when blank rather than sending an empty string', () async {
+      api = build(201, '{"ok":true}');
+      await api.reportPost(7, ReportReason.spam, details: '   ');
+      expect(jsonDecode(sent.single.body), isNot(contains('details')));
+    });
+
+    test('sends no device id — repeat reports are signal, not abuse', () async {
+      api = build(201, '{"ok":true}');
+      await api.reportPost(7, ReportReason.other);
+      expect(sent.single.headers.keys.map((k) => k.toLowerCase()), isNot(contains('x-device-id')));
+    });
+
+    test('429 surfaces a rate-limit message', () async {
+      api = build(429, '{"error":"rate limited"}');
+      expect(
+        () => api.reportPost(7, ReportReason.spam),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 429)),
+      );
+    });
+
+    test('404 surfaces a missing-post message', () async {
+      api = build(404, '{"error":"Post not found."}');
+      expect(
+        () => api.reportPost(7, ReportReason.spam),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 404)),
+      );
+    });
+
+    test('reason wire values match what the server accepts', () {
+      expect(
+        ReportReason.values.map((r) => r.wire),
+        ['spam', 'inappropriate', 'harassment', 'copyright', 'other'],
+      );
     });
   });
 }

@@ -136,6 +136,51 @@ class Api {
     return Post.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
 
+  /// Flags a post for manual review. Required by Google Play's UGC policy and
+  /// Apple Guideline 1.2 - an app hosting user content must let users report it
+  /// from inside the app.
+  ///
+  /// Deliberately sends no device id: the server treats repeat reports from one
+  /// device as a stronger signal rather than abuse, unlike voting.
+  Future<void> reportPost(int postId, ReportReason reason, {String? details}) async {
+    if (_demo) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      return;
+    }
+
+    late http.Response res;
+    try {
+      res = await _client
+          .post(
+            _uri('/posts/$postId/report'),
+            headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'reason': reason.wire,
+              if (details != null && details.trim().isNotEmpty)
+                'details': details.trim().substring(0, details.trim().length.clamp(0, 500)),
+            }),
+          )
+          .timeout(_timeout);
+    } catch (_) {
+      throw ApiException('Could not send the report. Check your connection.');
+    }
+
+    if (res.statusCode == 429) {
+      throw ApiException('Too many reports from this network. Try again later.', statusCode: 429);
+    }
+    if (res.statusCode == 404) {
+      throw ApiException('That post no longer exists.', statusCode: 404);
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      String msg = 'Report rejected (${res.statusCode}).';
+      try {
+        final j = jsonDecode(res.body) as Map<String, dynamic>;
+        if (j['error'] is String) msg = j['error'] as String;
+      } catch (_) {}
+      throw ApiException(msg, statusCode: res.statusCode);
+    }
+  }
+
   Future<String> randomPhrase({String lang = 'en'}) async {
     if (_demo) {
       _demoPhraseIndex = (_demoPhraseIndex + 1) % _demoPhrases.length;

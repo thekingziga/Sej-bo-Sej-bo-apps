@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api.dart';
+import '../l10n.dart';
 import '../donations.dart';
 import '../models.dart';
 import '../theme.dart';
@@ -76,7 +78,8 @@ class _DonateScreenState extends State<DonateScreen> {
       child: ListView(
         padding: const EdgeInsets.only(bottom: 34),
         children: [
-          const BrandHeader(title: 'Support', subtitle: 'Keep the nonsense online'),
+          BrandHeader(title: L10n.of(context)['supportTitle'],
+              subtitle: L10n.of(context)['supportSub']),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
@@ -117,6 +120,10 @@ class _DonateScreenState extends State<DonateScreen> {
 
                 const SizedBox(height: 10),
                 _RailNote(rail: rail),
+                const SizedBox(height: 26),
+                // Play and Apple both expect the privacy policy and terms to be
+                // reachable from inside the app, not only from the store listing.
+                const _LegalLinks(),
               ],
             ),
           ),
@@ -278,6 +285,52 @@ class _RailNote extends StatelessWidget {
             style: Brutal.body.copyWith(fontSize: 12, color: Brutal.ink.withValues(alpha: 0.6)),
           ),
         ),
+      ],
+    );
+  }
+}
+
+
+/// Links out to the policy pages on the website. They are plain HTML, not API
+/// endpoints, so this deliberately opens a browser rather than fetching them.
+class _LegalLinks extends StatelessWidget {
+  const _LegalLinks();
+
+  Future<void> _open(String url) async {
+    final uri = Uri.parse(url);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L10n.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final item in [
+          (t['legalPrivacy'], Links.privacy),
+          (t['legalTerms'], Links.terms),
+          (t['legalWebsite'], Links.website),
+        ]) ...[
+          GestureDetector(
+            onTap: () => _open(item.$2),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Brutal.ink, width: 2)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(item.$1, style: Brutal.body.copyWith(fontSize: 15)),
+                  ),
+                  Icon(Icons.open_in_new, size: 15, color: Brutal.ink.withValues(alpha: 0.6)),
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

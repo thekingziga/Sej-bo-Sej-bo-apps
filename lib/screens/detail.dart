@@ -5,6 +5,7 @@ import '../api.dart';
 import '../l10n.dart';
 import '../models.dart';
 import '../prefs.dart';
+import '../report.dart';
 import '../theme.dart';
 import '../widgets.dart';
 
@@ -181,6 +182,27 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             style: Brutal.body.copyWith(fontSize: 13, color: Brutal.ink.withValues(alpha: 0.65)),
           ),
         ],
+      ),
+      const SizedBox(height: 20),
+      // Required by Play's UGC policy and Apple Guideline 1.2: users must be
+      // able to flag content from inside the app.
+      Align(
+        alignment: Alignment.centerLeft,
+        child: BrutalButton(
+          color: Brutal.paper,
+          onPressed: widget.api == null
+              ? null
+              : () => showReportSheet(context, api: widget.api!, post: post),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.flag_outlined, size: 15),
+              const SizedBox(width: 6),
+              Text(t['report'], style: Brutal.label.copyWith(fontSize: 12)),
+            ],
+          ),
+        ),
       ),
       const SizedBox(height: 26),
       Transform.rotate(

@@ -174,6 +174,29 @@ class PostPage {
   );
 }
 
+/// Why a post is being flagged. The wire values are fixed by the server, which
+/// 400s on anything else - so this enum is the single source of truth and the
+/// UI must never send a free-text reason.
+enum ReportReason {
+  spam('spam'),
+  inappropriate('inappropriate'),
+  harassment('harassment'),
+  copyright('copyright'),
+  other('other');
+
+  const ReportReason(this.wire);
+  final String wire;
+}
+
+/// Public URLs the app links to but never calls as an API.
+class Links {
+  const Links._();
+
+  static const privacy = 'https://sejbosejbo.fyi/privacy';
+  static const terms = 'https://sejbosejbo.fyi/terms';
+  static const website = 'https://sejbosejbo.fyi';
+}
+
 /// A support tier. Amounts are minor units (cents) so there is no float money.
 class DonationTier {
   const DonationTier({
