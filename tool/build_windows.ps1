@@ -1,25 +1,34 @@
-# Sejbosejbo - Windows build helper
+# Sejbosejbo - Windows build
 #
-# Run this INSIDE the Parallels Windows 11 VM, in PowerShell, as Administrator.
-# It installs what Flutter needs, copies the project off the Mac share onto the
-# VM's local disk, and builds the Windows app.
+# Run this on the Windows PC, in PowerShell, from inside the extracted folder:
 #
 #   Set-ExecutionPolicy -Scope Process Bypass -Force
-#   \\Mac\Home\Projects\PROJECT\sejbosejbo-app\tool\build_windows.ps1
+#   .\tool\build_windows.ps1
 #
-# Why copy instead of building on the share: Flutter's Windows build uses CMake
-# and long nested paths, and building over the \\Mac\ SMB share is both slow and
-# prone to failing on path length and file locking. Local disk is the safe path.
+# It installs Git and Flutter if missing, checks for the Visual Studio C++
+# toolchain, and builds. The resulting folder under build\windows\ is
+# self-contained - copy it anywhere and run sejbosejbo.exe.
 
 $ErrorActionPreference = 'Stop'
 
 $FlutterRoot = 'C:\src\flutter'
-$WorkRoot    = 'C:\dev\sejbosejbo-app'
-$MacProject  = '\\Mac\Home\Projects\PROJECT\sejbosejbo-app'
+# Baked into the binary. Without it the app silently starts in demo mode on
+# bundled sample posts instead of talking to the real site.
+$ApiBaseUrl  = 'https://sejbosejbo.fyi'
 
-function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
-function Ok($msg)   { Write-Host "  ok   $msg" -ForegroundColor Green }
-function Warn($msg) { Write-Host "  warn $msg" -ForegroundColor Yellow }
+# Project root = parent of this script's folder, so the script works no matter
+# where the zip was extracted.
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+
+function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
+function Ok($m)   { Write-Host "  ok   $m"   -ForegroundColor Green }
+function Warn($m) { Write-Host "  warn $m"   -ForegroundColor Yellow }
+
+Step "Project root"
+Ok $ProjectRoot
+if (-not (Test-Path (Join-Path $ProjectRoot 'pubspec.yaml'))) {
+  throw "No pubspec.yaml in $ProjectRoot - run this from inside the extracted project folder."
+}
 
 # ---------------------------------------------------------------- prerequisites
 
@@ -32,39 +41,40 @@ Ok 'winget'
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   Step 'Installing Git'
-  winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
-  $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
-              [Environment]::GetEnvironmentVariable('Path', 'User')
+  winget install --id Git.Git -e --source winget `
+    --accept-package-agreements --accept-source-agreements --disable-interactivity
+  $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+              [Environment]::GetEnvironmentVariable('Path','User')
 }
-Ok 'git'
+Ok "git ($((git --version)))"
 
-# Flutter needs the real Visual Studio C++ toolchain. Build Tools alone is not
+# Flutter needs the real Visual Studio C++ toolchain; Build Tools alone is not
 # enough for `flutter doctor` to report the Windows toolchain as ready.
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $hasCpp = $false
 if (Test-Path $vswhere) {
-  $found = & $vswhere -latest -products * `
-    -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-  if ($found) { $hasCpp = $true; Ok "Visual Studio C++ toolchain: $found" }
+  if (& $vswhere -latest -products * `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath) {
+    $hasCpp = $true
+  }
 }
 
 if (-not $hasCpp) {
   Warn 'Visual Studio with "Desktop development with C++" is NOT installed.'
-  Warn 'This is a ~10 GB download and the one step that genuinely takes a while.'
-  $answer = Read-Host 'Install Visual Studio 2022 Community now? (y/N)'
-  if ($answer -eq 'y') {
-    winget install --id Microsoft.VisualStudio.2022.Community -e --source winget `
-      --accept-package-agreements --accept-source-agreements `
-      --override '--quiet --wait --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended'
-  } else {
-    throw 'Cannot build for Windows without the C++ workload. Install it and re-run.'
+  Warn 'This is a ~10 GB download and by far the longest step. Everything else takes minutes.'
+  if ((Read-Host 'Install Visual Studio 2022 Community now? (y/N)') -ne 'y') {
+    throw 'Cannot build for Windows without the C++ workload.'
   }
+  winget install --id Microsoft.VisualStudio.2022.Community -e --source winget `
+    --accept-package-agreements --accept-source-agreements `
+    --override '--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended'
 }
+Ok 'Visual Studio C++ toolchain'
 
 # --------------------------------------------------------------------- flutter
 
-if (-not (Test-Path $FlutterRoot)) {
-  Step 'Cloning Flutter (stable)'
+if (-not (Test-Path "$FlutterRoot\bin\flutter.bat")) {
+  Step 'Cloning Flutter (stable) - a few minutes'
   New-Item -ItemType Directory -Force -Path (Split-Path $FlutterRoot) | Out-Null
   git clone --depth 1 -b stable https://github.com/flutter/flutter.git $FlutterRoot
 }
@@ -74,35 +84,30 @@ Ok "flutter at $FlutterRoot"
 Step 'flutter doctor'
 flutter doctor
 
-# ------------------------------------------------------------------ the project
+# ----------------------------------------------------------------------- build
 
-Step 'Copying the project to local disk'
-if (-not (Test-Path $MacProject)) {
-  throw "Cannot see $MacProject. In Parallels: Configure > Options > Sharing, " +
-        "enable 'Share Mac folders with Windows' (Home folder), then re-run."
-}
-
-New-Item -ItemType Directory -Force -Path $WorkRoot | Out-Null
-# /MIR mirrors; skip build output and local tool state, which are huge, Mac
-# specific, and would only confuse the Windows build.
-robocopy $MacProject $WorkRoot /MIR /NFL /NDL /NJH /NJS /NP `
-  /XD build .dart_tool .git ios macos android .idea | Out-Null
-if ($LASTEXITCODE -ge 8) { throw "robocopy failed with code $LASTEXITCODE" }
-Ok "copied to $WorkRoot"
-
-Set-Location $WorkRoot
+Set-Location $ProjectRoot
 
 Step 'Resolving dependencies'
 flutter pub get
 
 Step 'Building Windows release'
-flutter build windows --release
+flutter build windows --release --dart-define="API_BASE_URL=$ApiBaseUrl"
 
-$exe = Join-Path $WorkRoot 'build\windows\x64\runner\Release\sejbosejbo.exe'
-if (Test-Path $exe) {
-  Step 'Done'
-  Ok $exe
-  Write-Host "`nRun it with:`n  & '$exe'`n"
-} else {
-  throw 'Build reported success but the exe is missing. Check the output above.'
-}
+# x64 on a normal PC, arm64 on Windows-on-ARM. Find whichever was produced
+# rather than assuming.
+$exe = Get-ChildItem -Path (Join-Path $ProjectRoot 'build\windows') `
+        -Filter 'sejbosejbo.exe' -Recurse -ErrorAction SilentlyContinue |
+       Where-Object { $_.FullName -like '*\Release\*' } |
+       Select-Object -First 1
+
+if (-not $exe) { throw 'Build reported success but no sejbosejbo.exe was found.' }
+
+Step 'Done'
+Ok $exe.FullName
+Write-Host ''
+Write-Host '  The whole Release folder is the app - copy it somewhere and run the exe.'
+Write-Host '  Everything beside it (the DLLs and the data folder) is required.'
+Write-Host ''
+Write-Host "  Run now with:  & '$($exe.FullName)'"
+Write-Host ''
