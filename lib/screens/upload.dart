@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
 
@@ -77,6 +80,55 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
+  /// Opens the crop/rotate editor on whatever is currently selected. Works for
+  /// both picked files and pasted bytes - pasted images have no path, so they
+  /// are written to a temp file first.
+  Future<void> _edit() async {
+    final bytes = _preview;
+    if (bytes == null) return;
+    final t = L10n.of(context);
+    try {
+      var path = _picked?.path;
+      if (path == null) {
+        final tmp = await File(
+          '${Directory.systemTemp.path}/sejbo_edit_${DateTime.now().millisecondsSinceEpoch}.png',
+        ).writeAsBytes(bytes);
+        path = tmp.path;
+      }
+
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: path,
+        compressQuality: 92,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: t['editPhoto'],
+            toolbarColor: Brutal.yellow,
+            toolbarWidgetColor: Brutal.ink,
+            backgroundColor: Brutal.ink,
+            activeControlsWidgetColor: Brutal.pink,
+            // Free by default so tall screenshots are not forced square.
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(title: t['editPhoto'], aspectRatioLockEnabled: false),
+        ],
+      );
+      if (cropped == null || !mounted) return;
+
+      final edited = await File(cropped.path).readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _preview = edited;
+        // The edited file is the new source of truth; drop the original XFile
+        // so submit() uploads the edit, not the untouched original.
+        _picked = XFile(cropped.path);
+        _error = null;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = t['editFailed']);
+    }
+  }
+
   Future<void> _submit() async {
     if (!_valid || _sending) return;
     setState(() {
@@ -141,6 +193,7 @@ class _UploadScreenState extends State<UploadScreen> {
                   onCamera: () => _pick(ImageSource.camera),
                   onGallery: () => _pick(ImageSource.gallery),
                   onPaste: _pasteFromClipboard,
+                  onEdit: _edit,
                   onClear: () => setState(() {
                     _picked = null;
                     _preview = null;
@@ -212,6 +265,7 @@ class _PickerZone extends StatelessWidget {
     required this.onCamera,
     required this.onGallery,
     required this.onPaste,
+    required this.onEdit,
     required this.onClear,
   });
 
@@ -220,6 +274,7 @@ class _PickerZone extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onGallery;
   final VoidCallback onPaste;
+  final VoidCallback onEdit;
   final VoidCallback onClear;
 
   @override
@@ -249,6 +304,12 @@ class _PickerZone extends StatelessWidget {
                 onPressed: onGallery,
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: Text(t['change']),
+              ),
+              BrutalButton(
+                color: Brutal.yellow,
+                onPressed: onEdit,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Text(t['edit']),
               ),
               BrutalButton(
                 color: Brutal.lime,

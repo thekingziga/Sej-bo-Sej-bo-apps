@@ -155,12 +155,25 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       const SizedBox(height: 14),
       Container(
         decoration: BoxDecoration(
+          color: Brutal.paperDeep,
           border: Border.all(color: Brutal.ink, width: 4),
           boxShadow: Brutal.shadow(dx: 7, dy: 7),
         ),
+        // BoxFit.contain, not cover. Most posts are phone screenshots - tall
+        // and narrow - and cover was cropping the top and bottom off, which is
+        // usually where the punchline is. Capped at 78% of the screen so a very
+        // tall image still leaves the votes and title reachable.
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 200, maxHeight: 460),
-          child: ClipRect(child: PostMedia(post: post, accent: Brutal.orange, compact: false)),
+          constraints: BoxConstraints(
+            minHeight: 180,
+            maxHeight: MediaQuery.of(context).size.height * 0.78,
+          ),
+          child: PostMedia(
+            post: post,
+            accent: Brutal.orange,
+            compact: false,
+            fit: BoxFit.contain,
+          ),
         ),
       ),
       if (post.description.isNotEmpty && !post.isStory) ...[

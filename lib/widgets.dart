@@ -10,11 +10,21 @@ import 'theme.dart';
 /// mode, where posts carry no image URL - a branded placeholder that still looks
 /// deliberate rather than broken.
 class PostMedia extends StatelessWidget {
-  const PostMedia({super.key, required this.post, required this.accent, this.compact = true});
+  const PostMedia({
+    super.key,
+    required this.post,
+    required this.accent,
+    this.compact = true,
+    this.fit = BoxFit.cover,
+  });
 
   final Post post;
   final Color accent;
   final bool compact;
+
+  /// cover for grid tiles (fills the square), contain on the detail screen so
+  /// the whole image is visible - tall screenshots were being cropped.
+  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +33,7 @@ class PostMedia extends StatelessWidget {
     if (url != null && url.isNotEmpty) {
       return Image.network(
         url,
-        fit: BoxFit.cover,
+        fit: fit,
         loadingBuilder: (c, child, progress) => progress == null
             ? child
             : Container(
@@ -150,8 +160,15 @@ class PostCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 7),
-              if (post.featured) ...[
-                BrutalTag(L10n.of(context)['featured']),
+              if (post.pinned || post.featured) ...[
+                Wrap(
+                  spacing: 5,
+                  runSpacing: 4,
+                  children: [
+                    if (post.pinned) BrutalTag(L10n.of(context)['pinned'], color: Brutal.cyan),
+                    if (post.featured) BrutalTag(L10n.of(context)['featured']),
+                  ],
+                ),
                 const SizedBox(height: 5),
               ],
               Text(

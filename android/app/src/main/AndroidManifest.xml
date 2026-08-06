@@ -24,7 +24,25 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- App Links. autoVerify makes Android fetch
+                 https://sejbosejbo.fyi/.well-known/assetlinks.json and check
+                 the app signing fingerprint; only then do links open here
+                 silently instead of in the browser. Until that file is served,
+                 this filter is harmless - links just keep opening the browser. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="sejbosejbo.fyi" android:pathPrefix="/post"/>
+            </intent-filter>
         </activity>
+        <!-- image_cropper's crop UI. Must sit beside MainActivity, not inside
+             it, and needs an AppCompat theme - Flutter's own LaunchTheme is not
+             AppCompat and UCrop throws on start without one. -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
