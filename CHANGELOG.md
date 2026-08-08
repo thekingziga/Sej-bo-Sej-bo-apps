@@ -9,6 +9,32 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.5.1+7
+
+Fixes a device-support regression introduced in 1.5.0.
+
+**Fixed**
+- **Restored support for 27 devices** that 1.5.0 silently dropped. The crop
+  activity added in 1.5.0 carried `android:screenOrientation="portrait"`, and
+  Android turns any such attribute into an *implied hard requirement* on
+  `android.hardware.screen.portrait` — which excludes every device that cannot
+  do portrait: landscape-only tablets, Chromebooks, TVs. Play surfaces this as
+  "this release supports fewer devices than the previous release".
+- Both `screen.portrait` and `touchscreen` are now declared explicitly as
+  `required="false"`, so a future activity orientation cannot quietly
+  re-introduce the requirement.
+
+Nothing else changes. The app never locked orientation anywhere else — no
+`setPreferredOrientations` in Dart, no `screenOrientation` on MainActivity — so
+the crop screen simply now rotates like every other screen.
+
+```
+Fixes an issue that made the app unavailable on some tablets and Chromebooks.
+No other changes.
+```
+
+---
+
 ## 1.5.0+6
 
 Photos no longer get cropped, plus a built-in editor and working deep links.

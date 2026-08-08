@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declared explicitly and NOT required. Any activity with
+         android:screenOrientation makes Android *imply* a hard requirement on
+         this feature, which silently drops every device that cannot do
+         portrait - landscape-only tablets, Chromebooks, TVs. Play reports that
+         as "this release supports fewer devices than the previous one". -->
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application
         android:label="sejbosejbo"
         android:name="${applicationName}"
@@ -41,7 +48,6 @@
              AppCompat and UCrop throws on start without one. -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
