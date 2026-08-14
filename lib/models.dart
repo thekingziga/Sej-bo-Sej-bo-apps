@@ -23,13 +23,21 @@ class Post {
     required this.createdAt,
     this.upvotes = 0,
     this.downvotes = 0,
+    this.commentCount = 0,
   });
 
   final int id;
   final String title;
   final String description;
 
-  /// 'image' or 'story'.
+  /// Today: 'image' or 'story'. Tomorrow: 'audio' or 'video' - both are already
+  /// built server-side and only waiting on a flag.
+  ///
+  /// Treat this as an **open set**. The server can start sending a new kind at
+  /// any time without an app release, so the app must never assume an
+  /// unrecognised kind is an image: [imageUrl] would then point at an .mp4 or
+  /// .m4a, and handing that to Image.network downloads the whole file over
+  /// mobile data before failing. See [isUnsupported].
   final String kind;
 
   /// Absolute URL, or null for text-only posts.
@@ -44,12 +52,16 @@ class Post {
   /// "sej ne bo" - no, this does not qualify.
   final int downvotes;
 
+  /// How many comments the thread holds. Server-maintained; the app only ever
+  /// nudges it locally so a freshly posted comment shows up without a refetch.
+  final int commentCount;
+
   int get score => upvotes - downvotes;
 
   String shareUrl(String base) =>
       '${base.isEmpty ? 'https://sejbosejbo.fyi' : base}/post/$id';
 
-  Post copyWith({int? upvotes, int? downvotes}) => Post(
+  Post copyWith({int? upvotes, int? downvotes, int? commentCount}) => Post(
     id: id,
     title: title,
     description: description,
@@ -60,12 +72,22 @@ class Post {
     createdAt: createdAt,
     upvotes: upvotes ?? this.upvotes,
     downvotes: downvotes ?? this.downvotes,
+    commentCount: commentCount ?? this.commentCount,
   );
+
+  /// The kinds this build knows how to render.
+  static const knownKinds = {'image', 'story'};
 
   /// Keyed off [kind], not [imageUrl]. If a photo post ever arrives without a
   /// usable URL - API hiccup, broken file - we still want its description shown
   /// rather than silently swallowed as if it were a text-only post.
   bool get isStory => kind == 'story';
+
+  /// A kind this build predates - audio and video are coming. The UI shows a
+  /// "open it on the website" card instead of guessing, which keeps old installs
+  /// working the day the server flips the flag rather than showing them a
+  /// permanent spinner or a broken image.
+  bool get isUnsupported => !knownKinds.contains(kind);
 
   factory Post.fromJson(Map<String, dynamic> j) => Post(
     id: (j['id'] as num).toInt(),
@@ -78,6 +100,7 @@ class Post {
     createdAt: DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ?? DateTime.now(),
     upvotes: (j['upvotes'] as num?)?.toInt() ?? 0,
     downvotes: (j['downvotes'] as num?)?.toInt() ?? 0,
+    commentCount: (j['comment_count'] as num?)?.toInt() ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -91,7 +114,63 @@ class Post {
     'created_at': createdAt.toUtc().toIso8601String(),
     'upvotes': upvotes,
     'downvotes': downvotes,
+    'comment_count': commentCount,
   };
+}
+
+/// One anonymous comment. The server never returns an author - there are no
+/// accounts, and the device id sent on create is not exposed to anyone.
+class Comment {
+  const Comment({
+    required this.id,
+    required this.postId,
+    required this.body,
+    required this.createdAt,
+  });
+
+  final int id;
+  final int postId;
+  final String body;
+  final DateTime createdAt;
+
+  /// The server trims and rejects past this; the composer enforces it too so a
+  /// long comment fails in the text field rather than after a round trip.
+  static const maxLength = 1000;
+
+  factory Comment.fromJson(Map<String, dynamic> j) => Comment(
+    id: (j['id'] as num).toInt(),
+    postId: (j['post_id'] as num?)?.toInt() ?? 0,
+    body: (j['body'] ?? '') as String,
+    createdAt: DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ?? DateTime.now(),
+  );
+}
+
+/// A page of comments. Oldest first, which is reading order for a thread -
+/// unlike posts, which are newest first.
+class CommentPage {
+  const CommentPage({
+    required this.items,
+    required this.page,
+    required this.total,
+    required this.hasNext,
+  });
+
+  final List<Comment> items;
+  final int page;
+  final int total;
+  final bool hasNext;
+
+  /// The server clamps `per_page` here, so asking for more just wastes a header.
+  static const maxPerPage = 100;
+
+  factory CommentPage.fromJson(Map<String, dynamic> j) => CommentPage(
+    items: ((j['items'] ?? const []) as List)
+        .map((e) => Comment.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    page: (j['page'] as num?)?.toInt() ?? 1,
+    total: (j['total'] as num?)?.toInt() ?? 0,
+    hasNext: j['has_next'] == true,
+  );
 }
 
 class Stats {

@@ -9,6 +9,50 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.6.0+8
+
+Comments, and future-proofing against the audio/video posts the server is
+already sitting on.
+
+**Added**
+- **Comment threads.** Every post now has one, on the detail screen: oldest
+  first (reading order, unlike the feed), with a composer, a live character
+  counter, pagination once a thread passes 50, and the empty state saying so.
+  Comments are anonymous - there are no accounts and the server exposes no
+  author.
+- **Comment counts on cards**, shown only when a thread is non-empty so a quiet
+  post stays quiet rather than advertising a zero.
+- **Your own comments are badged YOU.** The wire format is anonymous, so the
+  app remembers the ids it created locally (capped at 300, since the list only
+  drives a badge).
+
+**Changed**
+- **`kind` is now treated as an open set.** Audio and video posts are built
+  server-side and waiting on a flag; when it flips, `image_url` starts pointing
+  at an `.mp4` or `.m4a`. Previously anything unrecognised fell through to the
+  image path, which would have made `Image.network` pull an entire video over
+  mobile data before failing. An unknown kind now renders an honest "open it on
+  the website" card, so installs that predate the flag degrade instead of
+  breaking.
+
+**Verified**
+- Every wire shape here was captured from the live API rather than the spec -
+  including the 400/404/429 bodies and the `per_page` clamp at 100 - and the
+  client was then run against production to confirm it parses what the server
+  actually sends. 37 tests, up from 22.
+
+```
+NEW: comments. Every Sejbosejbo now has a thread - say your piece, anonymously,
+no account needed. Comment counts show on the cards.
+
+Your own comments are marked so you can find them again.
+
+Also groundwork for audio and video posts, so the app keeps working when they
+arrive.
+```
+
+---
+
 ## 1.5.1+7
 
 Fixes a device-support regression introduced in 1.5.0.

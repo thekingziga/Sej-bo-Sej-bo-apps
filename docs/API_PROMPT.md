@@ -70,16 +70,47 @@ Used everywhere a post appears:
   "pinned": false,
   "created_at": "2026-07-19T00:29:00Z",
   "upvotes": 128,
-  "downvotes": 6
+  "downvotes": 6,
+  "comment_count": 2
 }
 ```
 
-- `kind` is `"image"` or `"story"`.
+- `kind` is `"image"` or `"story"` today, and `"audio"` / `"video"` once those
+  ship. The app treats it as an **open set**: an unrecognised kind renders an
+  "open it on the website" card rather than assuming `image_url` is an image,
+  so the server can flip the flag without breaking installed builds.
 - `image_url` is `null` for text-only posts.
 - `featured` / `pinned` are real booleans, not the 0/1 the DB stores.
 - Hidden posts (`hidden = 1`) must never appear in any endpoint.
 - `upvotes` / `downvotes` are the raw counts. Do **not** send a pre-computed
   score; the app derives it as `upvotes - downvotes`.
+- `comment_count` is the number of visible comments. Hidden ones must not be
+  counted, or the card advertises a thread that renders empty.
+
+## Comments
+
+```
+GET  /api/v1/posts/:id/comments?page=1&per_page=50
+POST /api/v1/posts/:id/comments      {"body": "..."}
+```
+
+`GET` returns `{ items, page, per_page, total, has_next }` **oldest first** -
+reading order for a thread, the opposite of posts. `per_page` clamps to 100;
+the app clamps client-side too so the pager cannot disagree with the server.
+
+`POST` takes a body of at most 1000 characters, trimmed, and returns `201` with
+the bare comment object - not wrapped in an envelope:
+
+```json
+{ "id": 7, "post_id": 57, "body": "jabuk", "created_at": "2026-08-14T19:34:03.000Z" }
+```
+
+Errors: `400` empty or too long (the app shows the server's own wording), `404`
+post gone, `429` rate limited at 15 per 10 minutes per IP.
+
+`X-Device-Id` is optional here, unlike voting. The app sends it anyway so an
+install can badge its own comments; the server must never expose it, and
+comments stay anonymous to everyone.
 
 ## Endpoints
 

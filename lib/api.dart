@@ -136,6 +136,79 @@ class Api {
     return Post.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
 
+  /// One page of a post's comment thread, oldest first.
+  ///
+  /// [perPage] is clamped to what the server allows rather than sent blind, so
+  /// asking for 500 returns a predictable 100 instead of quietly disagreeing
+  /// with the pager.
+  Future<CommentPage> comments(int postId, {int page = 1, int perPage = 50}) async {
+    if (_demo) return _demoComments(postId, page);
+    return CommentPage.fromJson(
+      await _getJson('/posts/$postId/comments', {
+        'page': '$page',
+        'per_page': '${perPage.clamp(1, CommentPage.maxPerPage)}',
+      }),
+    );
+  }
+
+  /// Posts an anonymous comment and returns it as the server stored it.
+  ///
+  /// The device id goes along - optional here, unlike voting - purely so this
+  /// install can recognise its own comments later. The server never exposes it,
+  /// so comments stay anonymous to everyone including us.
+  Future<Comment> addComment(int postId, String body) async {
+    final text = body.trim();
+    if (text.isEmpty) throw ApiException('Write something first.');
+    if (text.length > Comment.maxLength) {
+      throw ApiException('That is longer than ${Comment.maxLength} characters.');
+    }
+
+    if (_demo) {
+      await Future<void>.delayed(const Duration(milliseconds: 320));
+      final list = _demoThreads.putIfAbsent(postId, () => []);
+      final c = Comment(
+        id: DateTime.now().millisecondsSinceEpoch,
+        postId: postId,
+        body: text,
+        createdAt: DateTime.now(),
+      );
+      list.add(c);
+      return c;
+    }
+
+    late http.Response res;
+    try {
+      res = await _client
+          .post(
+            _uri('/posts/$postId/comments'),
+            headers: {..._headers, 'Content-Type': 'application/json'},
+            body: jsonEncode({'body': text}),
+          )
+          .timeout(_timeout);
+    } catch (_) {
+      throw ApiException('Could not post your comment. Check your connection.');
+    }
+
+    if (res.statusCode == 429) {
+      throw ApiException('Slow down - too many comments from this network.', statusCode: 429);
+    }
+    if (res.statusCode == 404) {
+      throw ApiException('That post no longer exists.', statusCode: 404);
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      // The 400s carry a useful message ("Comment is too long (max 1000
+      // characters).") - prefer the server's wording over inventing our own.
+      String msg = 'Comment rejected (${res.statusCode}).';
+      try {
+        final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        if (j['error'] is String) msg = j['error'] as String;
+      } catch (_) {}
+      throw ApiException(msg, statusCode: res.statusCode);
+    }
+
+    return Comment.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
+  }
+
   /// Flags a post for manual review. Required by Google Play's UGC policy and
   /// Apple Guideline 1.2 - an app hosting user content must let users report it
   /// from inside the app.
@@ -482,6 +555,16 @@ class Api {
         list.retainWhere((p) => p.featured);
     }
     return list;
+  }
+
+  /// Demo threads live for the session only - enough to exercise the composer,
+  /// the empty state and the optimistic append without a server.
+  static final _demoThreads = <int, List<Comment>>{};
+
+  Future<CommentPage> _demoComments(int postId, int page) async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final all = _demoThreads[postId] ?? const <Comment>[];
+    return CommentPage(items: all, page: page, total: all.length, hasNext: false);
   }
 
   Future<PostPage> _demoPage(int page, PostSort sort) async {

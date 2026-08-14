@@ -18,6 +18,11 @@ class Prefs {
   static const _kVotePrefix = 'vote_';
   static const _kFeedCache = 'feed_cache';
   static const _kFeedCachedAt = 'feed_cached_at';
+  static const _kMyComments = 'my_comments';
+
+  /// How many of our own comment ids to keep. The list only drives a "YOU" tag,
+  /// so an unbounded one would grow forever to decorate threads nobody revisits.
+  static const _maxRememberedComments = 300;
 
   static Future<Prefs> load() async => Prefs._(await SharedPreferences.getInstance());
 
@@ -54,6 +59,24 @@ class Prefs {
     } else {
       await _p.setInt('$_kVotePrefix$postId', value);
     }
+  }
+
+  // -------------------------------------------------------------- comments
+
+  /// Ids of comments written on this device. Comments are anonymous on the
+  /// wire - the server never says who wrote what - so the only way to badge
+  /// your own is to remember them locally.
+  Set<int> get myComments =>
+      (_p.getStringList(_kMyComments) ?? const []).map(int.tryParse).nonNulls.toSet();
+
+  Future<void> rememberComment(int id) async {
+    final list = _p.getStringList(_kMyComments) ?? <String>[];
+    if (list.contains('$id')) return;
+    list.add('$id');
+    if (list.length > _maxRememberedComments) {
+      list.removeRange(0, list.length - _maxRememberedComments);
+    }
+    await _p.setStringList(_kMyComments, list);
   }
 
   // ----------------------------------------------------------- feed cache

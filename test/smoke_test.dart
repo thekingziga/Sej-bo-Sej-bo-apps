@@ -13,6 +13,7 @@ import 'package:sejbosejbo/models.dart';
 import 'package:sejbosejbo/prefs.dart';
 import 'package:sejbosejbo/screens/detail.dart';
 import 'package:sejbosejbo/theme.dart';
+import 'package:sejbosejbo/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// A widget test fails on a RenderFlex overflow, so simply pumping every screen
@@ -21,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   _uploadContentTypeTests();
   _reportTests();
+  _commentTests();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<Prefs> pumpApp(
@@ -103,6 +105,80 @@ void main() {
       const Offset(0, -250),
     );
     expect(find.textContaining('OFFICIALLY'), findsOneWidget);
+
+    // Scrolling that far builds the comments section, which kicks off a demo
+    // fetch; drain it or the binding fails on a pending timer.
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('detail shows the comment thread, and posting appends to it', (tester) async {
+    // 360x640 doubles as the layout guard: a widget test fails on overflow, and
+    // the composer plus counter row is the widest thing on the screen.
+    await pumpApp(tester, size: const Size(360, 640));
+
+    // On a 640pt screen the hero title sits under the bottom nav, so it has to
+    // be scrolled into reach before it can be tapped.
+    await tester.dragUntilVisible(
+      find.text('Microwaved a salad').first,
+      find.byType(ListView).first,
+      const Offset(0, -120),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Microwaved a salad').first);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+
+    final list = find.byType(ListView).last;
+    await tester.dragUntilVisible(find.text('COMMENTS'), list, const Offset(0, -250));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('No comments yet. Be the first.'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'comments section overflowed');
+
+    await tester.enterText(find.byType(TextField).last, 'sej bo sej bo');
+    await tester.pump();
+    await tester.tap(find.text('POST'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('sej bo sej bo'), findsOneWidget, reason: 'new comment is appended locally');
+    expect(find.text('No comments yet. Be the first.'), findsNothing);
+  });
+
+  testWidgets('an unknown post kind renders a card instead of a broken image', (tester) async {
+    // Guards the day audio/video ship: an old install must degrade, not break.
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.en,
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: Scaffold(
+            body: SizedBox(
+              height: 260,
+              width: 180,
+              child: PostCard(
+                post: Post.fromJson({
+                  'id': 1,
+                  'title': 'A loud one',
+                  'kind': 'video',
+                  'image_url': 'https://sejbosejbo.fyi/uploads/a.mp4',
+                  'created_at': '2026-08-14T19:34:03.000Z',
+                }),
+                index: 0,
+                onTap: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('VIDEO'), findsOneWidget);
+    expect(find.byType(Image), findsNothing, reason: 'never hand an .mp4 to Image.network');
   });
 
   testWidgets('hall of fame is ordered by score, highest first', (tester) async {
@@ -184,6 +260,36 @@ void main() {
       expect(p.description, '');
       expect(p.featured, isFalse);
       expect(p.imageUrl, isNull);
+      expect(p.commentCount, 0, reason: 'a server that predates comments still parses');
+    });
+
+    test('reads comment_count', () {
+      final p = Post.fromJson({'id': 3, 'title': 'x', 'created_at': '', 'comment_count': 12});
+      expect(p.commentCount, 12);
+    });
+
+    test('kind is an open set - audio and video are not treated as images', () {
+      // Audio/video exist server-side behind a flag. If an unknown kind fell
+      // through to the image path, Image.network would pull a whole .mp4 over
+      // mobile data before failing.
+      for (final kind in ['audio', 'video', 'something-invented-later']) {
+        final p = Post.fromJson({
+          'id': 4,
+          'title': 'x',
+          'kind': kind,
+          'image_url': 'https://sejbosejbo.fyi/uploads/a.mp4',
+          'created_at': '',
+        });
+        expect(p.isUnsupported, isTrue, reason: '$kind must not render as an image');
+        expect(p.isStory, isFalse);
+      }
+
+      for (final kind in ['image', 'story']) {
+        expect(
+          Post.fromJson({'id': 5, 'title': 'x', 'kind': kind, 'created_at': ''}).isUnsupported,
+          isFalse,
+        );
+      }
     });
   });
 
@@ -255,6 +361,133 @@ void _uploadContentTypeTests() {
     test('never sends application/octet-stream', () async {
       final ct = await contentTypeFor([0xFF, 0xD8, 0xFF]);
       expect(ct, isNot(contains('octet-stream')));
+    });
+  });
+}
+
+/// Comments. The shapes asserted here were captured from the live API, not from
+/// the spec - GET/POST responses, the per_page clamp and every documented error.
+void _commentTests() {
+  group('comments', () {
+    late List<http.Request> sent;
+
+    Api build(int status, String body) {
+      sent = [];
+      return Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent.add(req);
+          return http.Response(body, status, headers: {'content-type': 'application/json'});
+        }),
+      );
+    }
+
+    test('parses the live GET shape, oldest first', () async {
+      final api = build(200, jsonEncode({
+        'items': [
+          {'id': 6, 'post_id': 57, 'body': 'jabuk', 'created_at': '2026-08-14T19:34:03.000Z'},
+          {'id': 7, 'post_id': 57, 'body': 'second', 'created_at': '2026-08-14T19:36:07.000Z'},
+        ],
+        'page': 1,
+        'per_page': 50,
+        'total': 2,
+        'has_next': false,
+      }));
+
+      final page = await api.comments(57);
+      expect(sent.single.url.path, '/api/v1/posts/57/comments');
+      expect(page.items.map((c) => c.body), ['jabuk', 'second']);
+      expect(page.items.first.createdAt.toUtc(), DateTime.utc(2026, 8, 14, 19, 34, 3));
+      expect(page.total, 2);
+      expect(page.hasNext, isFalse);
+    });
+
+    test('per_page is clamped to the 100 the server enforces', () async {
+      final api = build(200, '{"items":[],"page":1,"per_page":100,"total":0,"has_next":false}');
+      await api.comments(57, perPage: 999);
+      expect(sent.single.url.queryParameters['per_page'], '100');
+    });
+
+    test('posts the documented body and trims whitespace', () async {
+      final api = build(201, jsonEncode({
+        'id': 8,
+        'post_id': 57,
+        'body': 'hello',
+        'created_at': '2026-08-14T19:40:00.000Z',
+      }));
+
+      final c = await api.addComment(57, '  hello  ');
+      expect(sent.single.url.path, '/api/v1/posts/57/comments');
+      expect(jsonDecode(sent.single.body), {'body': 'hello'});
+      expect(c.id, 8);
+      expect(c.body, 'hello');
+    });
+
+    test('sends the device id so this install can badge its own comments', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        prefs: prefs,
+        client: MockClient((req) async {
+          sent = [req];
+          return http.Response('{"id":1,"post_id":1,"body":"x","created_at":""}', 201);
+        }),
+      );
+
+      await api.addComment(1, 'x');
+      expect(sent.single.headers['X-Device-Id'], prefs.deviceId);
+    });
+
+    test('an empty comment never leaves the device', () async {
+      final api = build(201, '{}');
+      await expectLater(() => api.addComment(1, '   \n '), throwsA(isA<ApiException>()));
+      expect(sent, isEmpty, reason: 'the server 400s on this, so do not ask it');
+    });
+
+    test('an over-long comment never leaves the device', () async {
+      final api = build(201, '{}');
+      await expectLater(() => api.addComment(1, 'x' * 1001), throwsA(isA<ApiException>()));
+      expect(sent, isEmpty);
+    });
+
+    test('1000 characters is accepted - the limit is inclusive', () async {
+      final api = build(201, '{"id":1,"post_id":1,"body":"x","created_at":""}');
+      await api.addComment(1, 'x' * 1000);
+      expect(sent, hasLength(1));
+    });
+
+    test('surfaces the server wording on 400 rather than a status code', () async {
+      final api = build(400, '{"error":"Comment is too long (max 1000 characters)."}');
+      await expectLater(
+        () => api.addComment(1, 'x'),
+        throwsA(
+          isA<ApiException>().having((e) => e.message, 'message', contains('max 1000 characters')),
+        ),
+      );
+    });
+
+    test('429 surfaces a rate-limit message', () async {
+      final api = build(429, '{"error":"rate limited"}');
+      await expectLater(
+        () => api.addComment(1, 'x'),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 429)),
+      );
+    });
+
+    test('404 surfaces a missing-post message', () async {
+      final api = build(404, '{"error":"Post not found."}');
+      await expectLater(
+        () => api.addComment(1, 'x'),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 404)),
+      );
+    });
+
+    test('Comment.maxLength matches the server contract', () {
+      expect(Comment.maxLength, 1000);
+      expect(CommentPage.maxPerPage, 100);
     });
   });
 }

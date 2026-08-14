@@ -30,6 +30,15 @@ class PostMedia extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = post.imageUrl;
 
+    // Checked before the URL, deliberately. Audio and video posts are already
+    // built server-side and ship behind a flag; when it flips, image_url starts
+    // pointing at an .mp4 or .m4a. Falling through to Image.network there would
+    // download the whole clip over mobile data only to fail, so an unknown kind
+    // gets an honest card instead.
+    if (post.isUnsupported) {
+      return _Unsupported(post: post, compact: compact);
+    }
+
     if (url != null && url.isNotEmpty) {
       return Image.network(
         url,
@@ -68,6 +77,47 @@ class PostMedia extends StatelessWidget {
     }
 
     return _Placeholder(post: post, accent: accent, compact: compact);
+  }
+}
+
+/// Shown for a post whose `kind` this build does not know. Names the kind so it
+/// is obvious the app is out of date rather than broken.
+class _Unsupported extends StatelessWidget {
+  const _Unsupported({required this.post, required this.compact});
+
+  final Post post;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L10n.of(context);
+    return Container(
+      color: Brutal.paperDeep,
+      padding: EdgeInsets.all(compact ? 10 : 22),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.hourglass_empty, size: compact ? 22 : 40, color: Brutal.ink),
+          SizedBox(height: compact ? 6 : 12),
+          Text(
+            post.kind.toUpperCase(),
+            style: Brutal.display.copyWith(fontSize: compact ? 15 : 26),
+          ),
+          SizedBox(height: compact ? 3 : 8),
+          Text(
+            compact ? t['unsupportedTitle'] : t['unsupportedBody'],
+            textAlign: TextAlign.center,
+            maxLines: compact ? 2 : 4,
+            overflow: TextOverflow.ellipsis,
+            style: Brutal.body.copyWith(
+              fontSize: compact ? 11 : 15,
+              color: Brutal.ink.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -184,6 +234,10 @@ class PostCard extends StatelessWidget {
                   // chips would fall below a comfortable tap target. Voting
                   // lives on the hero, the detail screen and the hall of fame.
                   ScorePill(score: post.score),
+                  if (post.commentCount > 0) ...[
+                    const SizedBox(width: 5),
+                    CommentPill(count: post.commentCount),
+                  ],
                   const SizedBox(width: 7),
                   Expanded(
                     child: Text(
@@ -226,6 +280,36 @@ class ScorePill extends StatelessWidget {
       child: Text(
         score > 0 ? '+$score' : '$score',
         style: Brutal.display.copyWith(fontSize: 13),
+      ),
+    );
+  }
+}
+
+/// "3 people had opinions about this" - shown on a card only when the thread is
+/// non-empty, so a quiet post stays quiet instead of advertising a zero.
+class CommentPill extends StatelessWidget {
+  const CommentPill({super.key, required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '$count ${L10n.of(context)['comments']}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(
+          color: Brutal.cyan,
+          border: Border.all(color: Brutal.ink, width: 2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.mode_comment_outlined, size: 11),
+            const SizedBox(width: 3),
+            Text('$count', style: Brutal.display.copyWith(fontSize: 13)),
+          ],
+        ),
       ),
     );
   }

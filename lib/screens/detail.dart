@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api.dart';
+import '../comments.dart';
 import '../l10n.dart';
 import '../models.dart';
 import '../prefs.dart';
@@ -176,6 +178,34 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           ),
         ),
       ),
+      // Audio and video are built server-side and ship behind a flag. An older
+      // install must not pretend it can play them - it sends the user to the
+      // website, which always can.
+      if (post.isUnsupported) ...[
+        const SizedBox(height: 14),
+        BrutalBox(
+          color: Brutal.yellow,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(t['unsupportedTitle'], style: Brutal.label.copyWith(fontSize: 14)),
+              const SizedBox(height: 6),
+              Text(t['unsupportedBody'], style: Brutal.body.copyWith(fontSize: 14)),
+              const SizedBox(height: 12),
+              BrutalButton(
+                color: Brutal.paper,
+                onPressed: () => launchUrl(
+                  Uri.parse(post.shareUrl(widget.api?.baseUrl ?? '')),
+                  mode: LaunchMode.externalApplication,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(t['openOnWeb'], style: Brutal.label.copyWith(fontSize: 13)),
+              ),
+            ],
+          ),
+        ),
+      ],
       if (post.description.isNotEmpty && !post.isStory) ...[
         const SizedBox(height: 18),
         Text(post.description, style: Brutal.body.copyWith(fontSize: 17)),
@@ -217,7 +247,21 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           ),
         ),
       ),
-      const SizedBox(height: 26),
+      const SizedBox(height: 28),
+      if (widget.api != null) ...[
+        CommentsSection(
+          // Keyed by post id so opening a different post from a deep link
+          // rebuilds the thread instead of showing the previous post's.
+          key: ValueKey('comments-${post.id}'),
+          api: widget.api!,
+          postId: post.id,
+          prefs: widget.prefs,
+          onCountChanged: (n) {
+            if (mounted) setState(() => _post = _post?.copyWith(commentCount: n));
+          },
+        ),
+        const SizedBox(height: 28),
+      ],
       Transform.rotate(
         angle: -0.03,
         child: BrutalBox(

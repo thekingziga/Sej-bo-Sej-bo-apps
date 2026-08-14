@@ -101,6 +101,18 @@ class Strings {
     'legalPrivacy': 'Privacy policy',
     'legalTerms': 'Terms',
     'legalWebsite': 'Open the website',
+    'comments': 'Comments',
+    'commentsEmpty': 'No comments yet. Be the first.',
+    'commentHint': 'Say something...',
+    'commentSend': 'POST',
+    'commentsMore': 'SHOW MORE',
+    'commentsFailed': 'Could not load the comments.',
+    'commentSent': 'Comment posted.',
+    'commentYou': 'YOU',
+    'commentAnon': 'Anonymous',
+    'unsupportedTitle': 'NEEDS A NEWER APP',
+    'unsupportedBody': 'This one is a kind of post this version cannot show yet.',
+    'openOnWeb': 'OPEN ON THE WEBSITE',
   };
 
   static const _sl = <String, String>{
@@ -189,6 +201,18 @@ class Strings {
     'legalPrivacy': 'Politika zasebnosti',
     'legalTerms': 'Pogoji uporabe',
     'legalWebsite': 'Odpri spletno stran',
+    'comments': 'Komentarji',
+    'commentsEmpty': 'Še ni komentarjev. Bodi prvi.',
+    'commentHint': 'Povej kaj...',
+    'commentSend': 'OBJAVI',
+    'commentsMore': 'POKAŽI ŠE',
+    'commentsFailed': 'Komentarjev ni bilo mogoce naložiti.',
+    'commentSent': 'Komentar objavljen.',
+    'commentYou': 'TI',
+    'commentAnon': 'Anonimno',
+    'unsupportedTitle': 'POTREBUJE NOVEJŠO APLIKACIJO',
+    'unsupportedBody': 'Te vrste objave ta razlicica še ne zna prikazati.',
+    'openOnWeb': 'ODPRI NA SPLETNI STRANI',
   };
 
   static const en = Strings._(Lang.en, _en);
