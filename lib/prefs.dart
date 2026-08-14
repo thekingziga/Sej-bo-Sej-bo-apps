@@ -16,6 +16,7 @@ class Prefs {
   static const _kLang = 'lang';
   static const _kDeviceId = 'device_id';
   static const _kVotePrefix = 'vote_';
+  static const _kCommentVotePrefix = 'cvote_';
   static const _kFeedCache = 'feed_cache';
   static const _kFeedCachedAt = 'feed_cached_at';
   static const _kMyComments = 'my_comments';
@@ -58,6 +59,19 @@ class Prefs {
       await _p.remove('$_kVotePrefix$postId');
     } else {
       await _p.setInt('$_kVotePrefix$postId', value);
+    }
+  }
+
+  /// Same as [voteFor], for a comment. Kept under its own key prefix: comment
+  /// ids and post ids are separate sequences, so sharing one would have comment
+  /// 7 inherit post 7's vote.
+  int commentVoteFor(int commentId) => _p.getInt('$_kCommentVotePrefix$commentId') ?? 0;
+
+  Future<void> setCommentVote(int commentId, int value) async {
+    if (value == 0) {
+      await _p.remove('$_kCommentVotePrefix$commentId');
+    } else {
+      await _p.setInt('$_kCommentVotePrefix$commentId', value);
     }
   }
 

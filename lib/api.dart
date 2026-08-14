@@ -209,13 +209,67 @@ class Api {
     return Comment.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
 
+  /// Votes on a comment. Same semantics as [vote]: 1, -1, or 0 to withdraw.
+  ///
+  /// Unlike posting a comment, the device id is **required** here - the server
+  /// 400s without a valid one. That is checked up front rather than discovered
+  /// from a failed request, because a missing [prefs] is a wiring mistake in
+  /// this app, not something the user can act on.
+  Future<Comment> voteComment(int commentId, int value) async {
+    if (_demo) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      return _demoVoteComment(commentId, value);
+    }
+
+    if (prefs == null) {
+      throw ApiException('Cannot vote without a device id.');
+    }
+
+    late http.Response res;
+    try {
+      res = await _client
+          .post(
+            _uri('/comments/$commentId/vote'),
+            headers: {..._headers, 'Content-Type': 'application/json'},
+            body: jsonEncode({'value': value}),
+          )
+          .timeout(_timeout);
+    } catch (_) {
+      throw ApiException('Could not register your vote. Check your connection.');
+    }
+
+    if (res.statusCode == 429) {
+      throw ApiException('Slow down - too many votes from this network.', statusCode: 429);
+    }
+    if (res.statusCode == 404) {
+      throw ApiException('That comment no longer exists.', statusCode: 404);
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException('Vote rejected (${res.statusCode}).', statusCode: res.statusCode);
+    }
+    return Comment.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
+  }
+
   /// Flags a post for manual review. Required by Google Play's UGC policy and
   /// Apple Guideline 1.2 - an app hosting user content must let users report it
   /// from inside the app.
   ///
   /// Deliberately sends no device id: the server treats repeat reports from one
   /// device as a stronger signal rather than abuse, unlike voting.
-  Future<void> reportPost(int postId, ReportReason reason, {String? details}) async {
+  Future<void> reportPost(int postId, ReportReason reason, {String? details}) =>
+      report(ReportTarget.post, postId, reason, details: details);
+
+  /// Same, for a comment. Comments are user content too, so the store policies
+  /// that force in-app reporting cover them just as much as posts do.
+  Future<void> reportComment(int commentId, ReportReason reason, {String? details}) =>
+      report(ReportTarget.comment, commentId, reason, details: details);
+
+  Future<void> report(
+    ReportTarget target,
+    int id,
+    ReportReason reason, {
+    String? details,
+  }) async {
     if (_demo) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       return;
@@ -225,7 +279,7 @@ class Api {
     try {
       res = await _client
           .post(
-            _uri('/posts/$postId/report'),
+            _uri('/${target.path}/$id/report'),
             headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
             body: jsonEncode({
               'reason': reason.wire,
@@ -242,7 +296,12 @@ class Api {
       throw ApiException('Too many reports from this network. Try again later.', statusCode: 429);
     }
     if (res.statusCode == 404) {
-      throw ApiException('That post no longer exists.', statusCode: 404);
+      throw ApiException(
+        target == ReportTarget.comment
+            ? 'That comment no longer exists.'
+            : 'That post no longer exists.',
+        statusCode: 404,
+      );
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       String msg = 'Report rejected (${res.statusCode}).';
@@ -565,6 +624,25 @@ class Api {
     await Future<void>.delayed(const Duration(milliseconds: 300));
     final all = _demoThreads[postId] ?? const <Comment>[];
     return CommentPage(items: all, page: page, total: all.length, hasNext: false);
+  }
+
+  /// Demo mode keeps its own vote ledger so the counts actually move and stay
+  /// moved. Returning the comment unchanged would make every tap flash and then
+  /// snap back, since the UI replaces its optimistic guess with this response.
+  static final _demoCommentVotes = <int, int>{};
+
+  static Comment _demoVoteComment(int id, int value) {
+    for (final thread in _demoThreads.values) {
+      for (var i = 0; i < thread.length; i++) {
+        if (thread[i].id != id) continue;
+        final previous = _demoCommentVotes[id] ?? 0;
+        final next = applyVoteDelta(thread[i].upvotes, thread[i].downvotes, previous, value);
+        _demoCommentVotes[id] = value;
+        thread[i] = thread[i].copyWith(upvotes: next.up, downvotes: next.down);
+        return thread[i];
+      }
+    }
+    throw ApiException('That comment no longer exists.', statusCode: 404);
   }
 
   Future<PostPage> _demoPage(int page, PostSort sort) async {

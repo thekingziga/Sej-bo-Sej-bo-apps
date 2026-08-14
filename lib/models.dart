@@ -126,6 +126,8 @@ class Comment {
     required this.postId,
     required this.body,
     required this.createdAt,
+    this.upvotes = 0,
+    this.downvotes = 0,
   });
 
   final int id;
@@ -133,15 +135,32 @@ class Comment {
   final String body;
   final DateTime createdAt;
 
+  /// Same "sej bo" / "sej ne bo" counts as a post, same semantics.
+  final int upvotes;
+  final int downvotes;
+
+  int get score => upvotes - downvotes;
+
   /// The server trims and rejects past this; the composer enforces it too so a
   /// long comment fails in the text field rather than after a round trip.
   static const maxLength = 1000;
+
+  Comment copyWith({int? upvotes, int? downvotes}) => Comment(
+    id: id,
+    postId: postId,
+    body: body,
+    createdAt: createdAt,
+    upvotes: upvotes ?? this.upvotes,
+    downvotes: downvotes ?? this.downvotes,
+  );
 
   factory Comment.fromJson(Map<String, dynamic> j) => Comment(
     id: (j['id'] as num).toInt(),
     postId: (j['post_id'] as num?)?.toInt() ?? 0,
     body: (j['body'] ?? '') as String,
     createdAt: DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ?? DateTime.now(),
+    upvotes: (j['upvotes'] as num?)?.toInt() ?? 0,
+    downvotes: (j['downvotes'] as num?)?.toInt() ?? 0,
   );
 }
 
@@ -253,6 +272,21 @@ class PostPage {
   );
 }
 
+/// Moves vote counts as if the user changed their vote from [from] to [to],
+/// without waiting on the server. Shared by posts and comments, which vote
+/// identically - including that re-tapping the active direction passes 0.
+///
+/// Clamped at zero: an optimistic decrement must never render "-1 sej bo" if
+/// the local idea of the previous vote has drifted from the server's.
+({int up, int down}) applyVoteDelta(int up, int down, int from, int to) {
+  var u = up, d = down;
+  if (from == 1) u--;
+  if (from == -1) d--;
+  if (to == 1) u++;
+  if (to == -1) d++;
+  return (up: u.clamp(0, 1 << 30), down: d.clamp(0, 1 << 30));
+}
+
 /// Why a post is being flagged. The wire values are fixed by the server, which
 /// 400s on anything else - so this enum is the single source of truth and the
 /// UI must never send a free-text reason.
@@ -265,6 +299,16 @@ enum ReportReason {
 
   const ReportReason(this.wire);
   final String wire;
+}
+
+/// What a report is about. Both endpoints take the same reasons and neither
+/// wants a device id, so only the path differs.
+enum ReportTarget {
+  post('posts'),
+  comment('comments');
+
+  const ReportTarget(this.path);
+  final String path;
 }
 
 /// Public URLs the app links to but never calls as an API.

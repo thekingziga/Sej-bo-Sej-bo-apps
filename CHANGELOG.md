@@ -9,6 +9,47 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.7.0+9
+
+Comments can be voted on and reported, using the same widget and the same
+rules as posts.
+
+**Added**
+- **SEJ BO / SEJ NE BO on every comment.** Optimistic with rollback, and
+  re-tapping the active direction withdraws - identical to post voting, because
+  the semantics are identical and two subtly different vote behaviours in one
+  app would be a bug waiting to happen.
+- **Report a comment**, from a flag on the comment itself. Play's UGC policy
+  and Apple Guideline 1.2 cover user content, and a comment is user content as
+  much as a post is - so the app previously met the letter of the rule while
+  leaving the newest surface unreportable.
+
+**Changed**
+- `VoteBar` now takes raw counts instead of a Post, with `forPost` / `forComment`
+  constructors. One widget, one behaviour, both surfaces.
+- Comment votes are persisted under their own key prefix. Comment ids and post
+  ids are separate sequences, so a shared prefix would have comment 7 silently
+  inherit post 7's vote.
+- The vote path checks it has a device id before sending. The server requires
+  one here (unlike posting a comment, where it is optional) and 400s without a
+  valid one - and behind an optimistic UI, a vote that always fails is invisible.
+
+**Verified**
+- Round-tripped against production: vote up, flip to down, withdraw, with the
+  counts landing back exactly where they started and no residue. The generated
+  device id is asserted to match the server's `[A-Za-z0-9_-]{8,128}`. 48 tests,
+  up from 37.
+
+```
+You can now vote on comments, not just posts - SEJ BO or SEJ NE BO, tap again
+to take it back.
+
+You can also report a comment if something is wrong with it. Reports go to a
+human.
+```
+
+---
+
 ## 1.6.0+8
 
 Comments, and future-proofing against the audio/video posts the server is

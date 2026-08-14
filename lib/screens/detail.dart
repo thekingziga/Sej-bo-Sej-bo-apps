@@ -103,12 +103,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   /// Applies the delta of moving from [from] to [to] without waiting on the API.
   static Post _applyVoteLocally(Post p, int from, int to) {
-    var up = p.upvotes, down = p.downvotes;
-    if (from == 1) up--;
-    if (from == -1) down--;
-    if (to == 1) up++;
-    if (to == -1) down++;
-    return p.copyWith(upvotes: up.clamp(0, 1 << 30), downvotes: down.clamp(0, 1 << 30));
+    final next = applyVoteDelta(p.upvotes, p.downvotes, from, to);
+    return p.copyWith(upvotes: next.up, downvotes: next.down);
   }
 
   Future<void> _share() async {
@@ -211,7 +207,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         Text(post.description, style: Brutal.body.copyWith(fontSize: 17)),
       ],
       const SizedBox(height: 20),
-      VoteBar(post: post, myVote: _myVote, onVote: _vote),
+      VoteBar.forPost(post: post, myVote: _myVote, onVote: _vote),
       const SizedBox(height: 16),
       Row(
         children: [
@@ -235,7 +231,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           color: Brutal.paper,
           onPressed: widget.api == null
               ? null
-              : () => showReportSheet(context, api: widget.api!, post: post),
+              : () => showReportSheet(context, api: widget.api!, id: post.id),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
             mainAxisSize: MainAxisSize.min,

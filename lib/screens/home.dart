@@ -476,7 +476,7 @@ class _HeroPost extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 12),
-              VoteBar(post: post, myVote: myVote, onVote: onVote),
+              VoteBar.forPost(post: post, myVote: myVote, onVote: onVote),
               const SizedBox(height: 9),
               Row(
                 children: [

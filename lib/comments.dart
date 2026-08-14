@@ -4,6 +4,7 @@ import 'api.dart';
 import 'l10n.dart';
 import 'models.dart';
 import 'prefs.dart';
+import 'report.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -48,6 +49,10 @@ class _CommentsSectionState extends State<CommentsSection> {
   String? _sendError;
   Set<int> _mine = const {};
 
+  /// Mirror of the persisted comment votes, so the buttons show your own choice
+  /// without a Prefs read on every rebuild.
+  final _votes = <int, int>{};
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +75,38 @@ class _CommentsSectionState extends State<CommentsSection> {
 
   bool get _canSend => _controller.text.trim().isNotEmpty && !_sending;
 
+  /// Optimistic, with rollback - the same contract as post voting, because a
+  /// count that visibly lags behind the tap reads as broken.
+  Future<void> _vote(Comment comment, int value) async {
+    final i = _items.indexWhere((c) => c.id == comment.id);
+    if (i < 0) return;
+
+    final previous = widget.prefs?.commentVoteFor(comment.id) ?? _votes[comment.id] ?? 0;
+    final before = _items[i];
+    final next = applyVoteDelta(before.upvotes, before.downvotes, previous, value);
+
+    setState(() {
+      _votes[comment.id] = value;
+      _items[i] = before.copyWith(upvotes: next.up, downvotes: next.down);
+    });
+    await widget.prefs?.setCommentVote(comment.id, value);
+
+    try {
+      final updated = await widget.api.voteComment(comment.id, value);
+      if (!mounted) return;
+      final j = _items.indexWhere((c) => c.id == comment.id);
+      if (j >= 0) setState(() => _items[j] = updated);
+    } catch (_) {
+      if (!mounted) return;
+      final j = _items.indexWhere((c) => c.id == comment.id);
+      setState(() {
+        _votes[comment.id] = previous;
+        if (j >= 0) _items[j] = before;
+      });
+      await widget.prefs?.setCommentVote(comment.id, previous);
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -82,6 +119,9 @@ class _CommentsSectionState extends State<CommentsSection> {
         _items
           ..clear()
           ..addAll(page.items);
+        for (final c in page.items) {
+          _votes[c.id] = widget.prefs?.commentVoteFor(c.id) ?? 0;
+        }
         _page = page.page;
         _hasNext = page.hasNext;
         _total = page.total;
@@ -101,6 +141,9 @@ class _CommentsSectionState extends State<CommentsSection> {
       if (!mounted) return;
       setState(() {
         _items.addAll(page.items);
+        for (final c in page.items) {
+          _votes[c.id] = widget.prefs?.commentVoteFor(c.id) ?? 0;
+        }
         _page = page.page;
         _hasNext = page.hasNext;
         _total = page.total;
@@ -223,9 +266,17 @@ class _CommentsSectionState extends State<CommentsSection> {
           for (var i = 0; i < _items.length; i++) ...[
             _CommentTile(
               comment: _items[i],
-              index: i,
               mine: _mine.contains(_items[i].id),
               youLabel: t['commentYou'],
+              myVote: _votes[_items[i].id] ?? 0,
+              onVote: (v) => _vote(_items[i], v),
+              onReport: () => showReportSheet(
+                context,
+                api: widget.api,
+                id: _items[i].id,
+                target: ReportTarget.comment,
+              ),
+              reportLabel: t['reportComment'],
             ),
             const SizedBox(height: 10),
           ],
@@ -275,15 +326,21 @@ class _CommentsSectionState extends State<CommentsSection> {
 class _CommentTile extends StatelessWidget {
   const _CommentTile({
     required this.comment,
-    required this.index,
     required this.mine,
     required this.youLabel,
+    required this.myVote,
+    required this.onVote,
+    required this.onReport,
+    required this.reportLabel,
   });
 
   final Comment comment;
-  final int index;
   final bool mine;
   final String youLabel;
+  final int myVote;
+  final ValueChanged<int> onVote;
+  final VoidCallback onReport;
+  final String reportLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -309,12 +366,35 @@ class _CommentTile extends StatelessWidget {
                   ),
                 ),
               ),
+              // Store policy again: user content needs a report path from
+              // inside the app, and a comment is user content as much as a
+              // post is. Icon-only to keep the tile header on one line.
+              Semantics(
+                button: true,
+                label: reportLabel,
+                child: GestureDetector(
+                  onTap: onReport,
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
+                    child: Icon(
+                      Icons.flag_outlined,
+                      size: 15,
+                      color: Brutal.ink.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
           // No maxLines: a comment is capped at 1000 characters server-side, so
           // the worst case is a tall tile, not an unbounded one.
           Text(comment.body, style: Brutal.body.copyWith(fontSize: 15)),
+          const SizedBox(height: 10),
+          // The same VoteBar as posts, in compact form: identical semantics,
+          // including that re-tapping the active direction withdraws.
+          VoteBar.forComment(comment: comment, myVote: myVote, onVote: onVote),
         ],
       ),
     );

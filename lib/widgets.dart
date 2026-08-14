@@ -320,13 +320,46 @@ class CommentPill extends StatelessWidget {
 class VoteBar extends StatelessWidget {
   const VoteBar({
     super.key,
-    required this.post,
+    required this.upvotes,
+    required this.downvotes,
     required this.myVote,
     required this.onVote,
     this.compact = false,
   });
 
-  final Post post;
+  /// Takes raw counts rather than a Post so comments can use the same widget -
+  /// the two vote identically, down to the withdraw-on-retap behaviour.
+  VoteBar.forPost({
+    Key? key,
+    required Post post,
+    required int myVote,
+    required ValueChanged<int> onVote,
+    bool compact = false,
+  }) : this(
+         key: key,
+         upvotes: post.upvotes,
+         downvotes: post.downvotes,
+         myVote: myVote,
+         onVote: onVote,
+         compact: compact,
+       );
+
+  VoteBar.forComment({
+    Key? key,
+    required Comment comment,
+    required int myVote,
+    required ValueChanged<int> onVote,
+  }) : this(
+         key: key,
+         upvotes: comment.upvotes,
+         downvotes: comment.downvotes,
+         myVote: myVote,
+         onVote: onVote,
+         compact: true,
+       );
+
+  final int upvotes;
+  final int downvotes;
 
   /// -1, 0 or 1.
   final int myVote;
@@ -346,7 +379,7 @@ class VoteBar extends StatelessWidget {
       children: [
         _VoteChip(
           label: t['voteUp'],
-          count: post.upvotes,
+          count: upvotes,
           active: myVote == 1,
           color: Brutal.lime,
           compact: compact,
@@ -354,7 +387,7 @@ class VoteBar extends StatelessWidget {
         ),
         _VoteChip(
           label: t['voteDown'],
-          count: post.downvotes,
+          count: downvotes,
           active: myVote == -1,
           color: Brutal.danger,
           compact: compact,

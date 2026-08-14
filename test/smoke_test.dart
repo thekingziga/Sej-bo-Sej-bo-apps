@@ -144,6 +144,14 @@ void main() {
 
     expect(find.text('sej bo sej bo'), findsOneWidget, reason: 'new comment is appended locally');
     expect(find.text('No comments yet. Be the first.'), findsNothing);
+
+    // The comment carries its own vote bar - same widget, same semantics as a
+    // post's - so the tile now holds a second SEJ BO.
+    expect(find.text('SEJ BO'), findsWidgets);
+    await tester.tap(find.text('SEJ BO').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.takeException(), isNull, reason: 'voting on a comment overflowed or threw');
   });
 
   testWidgets('an unknown post kind renders a card instead of a broken image', (tester) async {
@@ -488,6 +496,171 @@ void _commentTests() {
     test('Comment.maxLength matches the server contract', () {
       expect(Comment.maxLength, 1000);
       expect(CommentPage.maxPerPage, 100);
+    });
+
+    test('parses upvotes and downvotes, defaulting to zero on older servers', () {
+      final c = Comment.fromJson({
+        'id': 6,
+        'post_id': 57,
+        'body': 'jabuk',
+        'created_at': '2026-08-14T19:34:03.000Z',
+        'upvotes': 3,
+        'downvotes': 1,
+      });
+      expect(c.score, 2);
+      expect(Comment.fromJson({'id': 1, 'created_at': ''}).score, 0);
+    });
+  });
+
+  group('comment voting', () {
+    test('sends the device id, which is required here unlike posting', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        prefs: prefs,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response(
+            '{"id":6,"post_id":57,"body":"jabuk","created_at":"","upvotes":1,"downvotes":0}',
+            200,
+          );
+        }),
+      );
+
+      final c = await api.voteComment(6, 1);
+      expect(sent.url.path, '/api/v1/comments/6/vote');
+      expect(jsonDecode(sent.body), {'value': 1});
+      expect(sent.headers['X-Device-Id'], prefs.deviceId);
+      expect(c.upvotes, 1);
+    });
+
+    test('the generated device id satisfies the server pattern', () async {
+      // The server 400s on anything outside [A-Za-z0-9_-]{8,128}, and a vote
+      // that always fails would be invisible behind the optimistic UI.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      expect(prefs.deviceId, matches(RegExp(r'^[A-Za-z0-9_-]{8,128}$')));
+    });
+
+    test('refuses to vote with no device id rather than earning a 400', () async {
+      var called = false;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((_) async {
+          called = true;
+          return http.Response('{}', 200);
+        }),
+      );
+      await expectLater(() => api.voteComment(6, 1), throwsA(isA<ApiException>()));
+      expect(called, isFalse);
+    });
+
+    test('404 and 429 surface with their status attached', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      Api build(int status) => Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        prefs: prefs,
+        client: MockClient((_) async => http.Response('{"error":"x"}', status)),
+      );
+
+      await expectLater(
+        () => build(404).voteComment(6, 1),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 404)),
+      );
+      await expectLater(
+        () => build(429).voteComment(6, 1),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 429)),
+      );
+    });
+
+    test('withdrawing sends 0, matching post voting', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        prefs: prefs,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"id":6,"created_at":"","upvotes":0,"downvotes":0}', 200);
+        }),
+      );
+      await api.voteComment(6, 0);
+      expect(jsonDecode(sent.body), {'value': 0});
+    });
+
+    test('applyVoteDelta covers every transition and never goes negative', () {
+      expect(applyVoteDelta(5, 2, 0, 1), (up: 6, down: 2));
+      expect(applyVoteDelta(5, 2, 0, -1), (up: 5, down: 3));
+      expect(applyVoteDelta(5, 2, 1, 0), (up: 4, down: 2));
+      expect(applyVoteDelta(5, 2, 1, -1), (up: 4, down: 3), reason: 'flip moves both counts');
+      expect(applyVoteDelta(5, 2, -1, 1), (up: 6, down: 1));
+      // Local state can drift from the server's; a stale "previous" must not
+      // render a negative count.
+      expect(applyVoteDelta(0, 0, 1, 0), (up: 0, down: 0));
+    });
+
+    test('comment votes are stored apart from post votes with the same id', () async {
+      // Comment ids and post ids are separate sequences, so a shared key prefix
+      // would have comment 7 inherit post 7's vote.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      await prefs.setVote(7, 1);
+      await prefs.setCommentVote(7, -1);
+      expect(prefs.voteFor(7), 1);
+      expect(prefs.commentVoteFor(7), -1);
+    });
+  });
+
+  group('comment reporting', () {
+    test('hits the comments path, with no device id', () async {
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"ok":true}', 201);
+        }),
+      );
+
+      await api.reportComment(6, ReportReason.spam, details: 'nope');
+      expect(sent.url.path, '/api/v1/comments/6/report');
+      expect(jsonDecode(sent.body), {'reason': 'spam', 'details': 'nope'});
+      expect(sent.headers.keys.map((k) => k.toLowerCase()), isNot(contains('x-device-id')));
+    });
+
+    test('posts still hit the posts path', () async {
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"ok":true}', 201);
+        }),
+      );
+      await api.reportPost(6, ReportReason.spam);
+      expect(sent.url.path, '/api/v1/posts/6/report');
+    });
+
+    test('a 404 on a comment says comment, not post', () async {
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((_) async => http.Response('{"error":"Comment not found."}', 404)),
+      );
+      await expectLater(
+        () => api.reportComment(6, ReportReason.spam),
+        throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('comment'))),
+      );
     });
   });
 }

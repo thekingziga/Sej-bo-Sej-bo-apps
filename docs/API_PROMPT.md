@@ -112,6 +112,28 @@ post gone, `429` rate limited at 15 per 10 minutes per IP.
 install can badge its own comments; the server must never expose it, and
 comments stay anonymous to everyone.
 
+### Comment voting and reporting
+
+```
+POST /api/v1/comments/:id/vote     {"value": 1 | -1 | 0}   X-Device-Id REQUIRED
+POST /api/v1/comments/:id/report   {"reason": "...", "details": "..."}  no device id
+```
+
+Identical semantics to post voting, including that re-tapping the active
+direction sends `0` to withdraw. Comment objects carry `upvotes`/`downvotes`
+alongside the fields above.
+
+The device id is **required** on the vote and rejected outside
+`[A-Za-z0-9_-]{8,128}` - note this differs from posting a comment, where it is
+optional. The app checks it has one before sending rather than discovering the
+400, because behind an optimistic UI a vote that always fails is invisible.
+
+Errors: `400` bad device id or bad value, `404` comment gone or hidden, `429`
+at 60/min per IP.
+
+Report reasons are the same five as posts, and neither report endpoint wants a
+device id - repeat reports from one device are signal, not abuse.
+
 ## Endpoints
 
 ### `GET /api/v1/feed?lang=en`

@@ -13,20 +13,29 @@ import 'theme.dart';
 /// be rejected or pulled after the fact.
 ///
 /// Opens as a modal sheet so it works from any screen without a route change.
-Future<void> showReportSheet(BuildContext context, {required Api api, required Post post}) {
+///
+/// Handles posts and comments alike - both are user content, both endpoints
+/// take the same reasons, and neither wants a device id.
+Future<void> showReportSheet(
+  BuildContext context, {
+  required Api api,
+  required int id,
+  ReportTarget target = ReportTarget.post,
+}) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _ReportSheet(api: api, post: post),
+    builder: (_) => _ReportSheet(api: api, id: id, target: target),
   );
 }
 
 class _ReportSheet extends StatefulWidget {
-  const _ReportSheet({required this.api, required this.post});
+  const _ReportSheet({required this.api, required this.id, required this.target});
 
   final Api api;
-  final Post post;
+  final int id;
+  final ReportTarget target;
 
   @override
   State<_ReportSheet> createState() => _ReportSheetState();
@@ -62,7 +71,7 @@ class _ReportSheetState extends State<_ReportSheet> {
 
     final t = L10n.of(context);
     try {
-      await widget.api.reportPost(widget.post.id, reason, details: _details.text);
+      await widget.api.report(widget.target, widget.id, reason, details: _details.text);
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -107,7 +116,12 @@ class _ReportSheetState extends State<_ReportSheet> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(t['reportTitle'], style: Brutal.display.copyWith(fontSize: 24)),
+                Text(
+                  widget.target == ReportTarget.comment
+                      ? t['reportCommentTitle']
+                      : t['reportTitle'],
+                  style: Brutal.display.copyWith(fontSize: 24),
+                ),
                 const SizedBox(height: 6),
                 Text(
                   t['reportSub'],
