@@ -43,7 +43,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     super.initState();
     _post = widget.post;
     if (_post != null) {
-      _myVote = widget.prefs?.voteFor(_post!.id) ?? 0;
+      _myVote = _post!.myVote ?? 0;
     } else {
       _fetch();
     }
@@ -63,7 +63,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       if (!mounted) return;
       setState(() {
         _post = found;
-        _myVote = widget.prefs?.voteFor(id) ?? 0;
+        _myVote = found?.myVote ?? 0;
         if (found == null) _error = 'That Sejbosejbo could not be found.';
       });
     } catch (e) {
@@ -85,19 +85,22 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _myVote = value;
       _post = _applyVoteLocally(post, previous, value);
     });
-    await widget.prefs?.setVote(post.id, value);
 
     if (api == null) return;
     try {
       final updated = await api.vote(post.id, value);
-      if (mounted) setState(() => _post = updated);
+      if (mounted) {
+        setState(() {
+          _post = updated;
+          _myVote = updated.myVote ?? value;
+        });
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _myVote = previous;
         _post = before;
       });
-      await widget.prefs?.setVote(post.id, previous);
     }
   }
 

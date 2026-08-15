@@ -11,13 +11,45 @@ import 'prefs.dart';
 /// Thrown for any non-2xx response or transport failure, with a message that is
 /// safe to show the user.
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode});
+  ApiException(this.message, {this.statusCode, this.retryAfter});
 
   final String message;
   final int? statusCode;
 
+  /// How long until a rate limit frees up, when the server said so. Computed
+  /// server-side from a sliding window, so it is when a slot genuinely opens -
+  /// worth showing as a countdown rather than letting the user hammer the
+  /// button, which only extends the block.
+  final Duration? retryAfter;
+
   @override
   String toString() => message;
+
+  /// Reads the limit from a 429. The header is authoritative and is present on
+  /// every limited endpoint; the JSON body carries the same number and is the
+  /// fallback for any proxy that strips headers.
+  static Duration? _retryAfterOf(http.Response res) {
+    final header = int.tryParse(res.headers['retry-after'] ?? '');
+    if (header != null && header > 0) return Duration(seconds: header);
+    try {
+      final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      final body = (j['retry_after_seconds'] as num?)?.toInt();
+      if (body != null && body > 0) return Duration(seconds: body);
+    } catch (_) {}
+    return null;
+  }
+
+  /// Builds the exception for a rate-limited response, preferring the server's
+  /// own wording since it is already human-readable and localised to the limit
+  /// that was actually hit.
+  factory ApiException.rateLimited(http.Response res, String fallback) {
+    var message = fallback;
+    try {
+      final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      if (j['error'] is String) message = j['error'] as String;
+    } catch (_) {}
+    return ApiException(message, statusCode: 429, retryAfter: _retryAfterOf(res));
+  }
 }
 
 /// Talks to the JSON API described in docs/API_PROMPT.md.
@@ -46,6 +78,10 @@ class Api {
   /// True when the last feed() call fell back to the cache.
   bool servedFromCache = false;
 
+  /// Sent on **reads as well as writes**. The server keys `my_vote` off this
+  /// header, and omits the field entirely without it - so a read that skipped
+  /// the header would come back permanently "unknown" and the vote buttons
+  /// would render blank for content this device has already voted on.
   Map<String, String> get _headers => {
     'Accept': 'application/json',
     if (prefs != null) 'X-Device-Id': prefs!.deviceId,
@@ -112,10 +148,12 @@ class Api {
     if (_demo) {
       await Future<void>.delayed(const Duration(milliseconds: 220));
       final p = _demoPosts.firstWhere((e) => e.id == postId);
-      return p.copyWith(
-        upvotes: p.upvotes + (value == 1 ? 1 : 0),
-        downvotes: p.downvotes + (value == -1 ? 1 : 0),
-      );
+      final previous = _demoPostVotes[postId] ?? 0;
+      final next = applyVoteDelta(p.upvotes, p.downvotes, previous, value);
+      _demoPostVotes[postId] = value;
+      final updated = p.copyWith(upvotes: next.up, downvotes: next.down, myVote: value);
+      _demoPosts[_demoPosts.indexOf(p)] = updated;
+      return updated;
     }
 
     late http.Response res;
@@ -136,17 +174,24 @@ class Api {
     return Post.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
 
-  /// One page of a post's comment thread, oldest first.
+  /// One page of a post's comment thread.
   ///
   /// [perPage] is clamped to what the server allows rather than sent blind, so
   /// asking for 500 returns a predictable 100 instead of quietly disagreeing
-  /// with the pager.
-  Future<CommentPage> comments(int postId, {int page = 1, int perPage = 50}) async {
-    if (_demo) return _demoComments(postId, page);
+  /// with the pager. The returned page carries the sort the server *applied*,
+  /// which is not necessarily the one requested.
+  Future<CommentPage> comments(
+    int postId, {
+    int page = 1,
+    int perPage = 50,
+    CommentSort sort = CommentSort.oldest,
+  }) async {
+    if (_demo) return _demoComments(postId, page, sort);
     return CommentPage.fromJson(
       await _getJson('/posts/$postId/comments', {
         'page': '$page',
         'per_page': '${perPage.clamp(1, CommentPage.maxPerPage)}',
+        'sort': sort.wire,
       }),
     );
   }
@@ -190,7 +235,7 @@ class Api {
     }
 
     if (res.statusCode == 429) {
-      throw ApiException('Slow down - too many comments from this network.', statusCode: 429);
+      throw ApiException.rateLimited(res, 'Slow down - too many comments from this network.');
     }
     if (res.statusCode == 404) {
       throw ApiException('That post no longer exists.', statusCode: 404);
@@ -239,7 +284,7 @@ class Api {
     }
 
     if (res.statusCode == 429) {
-      throw ApiException('Slow down - too many votes from this network.', statusCode: 429);
+      throw ApiException.rateLimited(res, 'Slow down - too many votes from this network.');
     }
     if (res.statusCode == 404) {
       throw ApiException('That comment no longer exists.', statusCode: 404);
@@ -293,7 +338,7 @@ class Api {
     }
 
     if (res.statusCode == 429) {
-      throw ApiException('Too many reports from this network. Try again later.', statusCode: 429);
+      throw ApiException.rateLimited(res, 'Too many reports from this network.');
     }
     if (res.statusCode == 404) {
       throw ApiException(
@@ -620,10 +665,27 @@ class Api {
   /// the empty state and the optimistic append without a server.
   static final _demoThreads = <int, List<Comment>>{};
 
-  Future<CommentPage> _demoComments(int postId, int page) async {
+  /// Demo mode's stand-in for the server's per-device vote table, so my_vote
+  /// and the counts behave the way production does.
+  static final _demoPostVotes = <int, int>{};
+
+  Future<CommentPage> _demoComments(int postId, int page, CommentSort sort) async {
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    final all = _demoThreads[postId] ?? const <Comment>[];
-    return CommentPage(items: all, page: page, total: all.length, hasNext: false);
+    final all = [...?_demoThreads[postId]];
+    if (sort == CommentSort.top) {
+      // Same tie-break as the server: oldest first, so paging is stable.
+      all.sort((a, b) {
+        final byScore = b.score.compareTo(a.score);
+        return byScore != 0 ? byScore : a.createdAt.compareTo(b.createdAt);
+      });
+    }
+    return CommentPage(
+      items: all,
+      page: page,
+      total: all.length,
+      hasNext: false,
+      sort: sort,
+    );
   }
 
   /// Demo mode keeps its own vote ledger so the counts actually move and stay
@@ -638,7 +700,7 @@ class Api {
         final previous = _demoCommentVotes[id] ?? 0;
         final next = applyVoteDelta(thread[i].upvotes, thread[i].downvotes, previous, value);
         _demoCommentVotes[id] = value;
-        thread[i] = thread[i].copyWith(upvotes: next.up, downvotes: next.down);
+        thread[i] = thread[i].copyWith(upvotes: next.up, downvotes: next.down, myVote: value);
         return thread[i];
       }
     }

@@ -45,8 +45,10 @@ host, so a subdomain would only add a second thing to configure.
 - All timestamps are **ISO 8601 UTC with a `Z` suffix**. The DB currently stores
   SQLite `CURRENT_TIMESTAMP` as `YYYY-MM-DD HH:MM:SS` in UTC, so convert on the
   way out — do not send the raw column.
-- All image URLs are **absolute** (`https://sejbosejbo.fyi/uploads/…`), never
-  relative. The app has no base URL to resolve them against.
+- All image URLs are **absolute**, never relative. The app has no base URL to
+  resolve them against, and it never rebuilds a URL from parts - it renders
+  `image_url` exactly as sent. That is what lets uploads move to S3-backed
+  storage (different host) without an app release.
 - `lang` query param accepts `en` or `sl` and drives the localised strings
   (quotes, phrases) using the existing `i18n` object. Default `en`.
 - Add permissive CORS (`Access-Control-Allow-Origin: *`) on `/api/v1` only.
@@ -85,7 +87,31 @@ Used everywhere a post appears:
 - `upvotes` / `downvotes` are the raw counts. Do **not** send a pre-computed
   score; the app derives it as `upvotes - downvotes`.
 - `comment_count` is the number of visible comments. Hidden ones must not be
-  counted, or the card advertises a thread that renders empty.
+  counted, or the card advertises a thread that renders empty. (Confirmed
+  server-side: hiding a comment drops the count in lockstep with the listing.)
+- `my_vote` is this device's vote - `1`, `-1`, or `0` for "known, has not
+  voted" - present on every read that carried a usable `X-Device-Id`.
+
+  **Absent is not `0`.** A missing field means the server could not identify
+  the caller; `0` means it could and there is no vote. The app models it as
+  `int?` and never defaults it at the parse layer, because collapsing the two
+  is exactly the bug the field exists to fix: a button rendered unvoted for
+  something already voted, which is also the cheapest way to vote twice.
+
+  The app therefore sends `X-Device-Id` on **reads as well as writes**, and
+  keeps no local vote ledger at all - the server is the record. That is what
+  makes votes survive a reinstall or a cleared cache.
+
+## Rate limiting
+
+Every `429` carries both a `Retry-After` header (seconds) and
+`retry_after_seconds` in the body, computed from the sliding window, so it is
+when a slot genuinely frees rather than a fixed guess. The app prefers the
+header, falls back to the body for proxies that strip headers, disables the
+control for that long and counts down. Retrying early only extends the block.
+
+Limits: uploads 5/10min, votes 60/min, comments 15/10min, reports 20/hour, all
+per-IP.
 
 ## Comments
 
@@ -94,9 +120,12 @@ GET  /api/v1/posts/:id/comments?page=1&per_page=50
 POST /api/v1/posts/:id/comments      {"body": "..."}
 ```
 
-`GET` returns `{ items, page, per_page, total, has_next }` **oldest first** -
-reading order for a thread, the opposite of posts. `per_page` clamps to 100;
-the app clamps client-side too so the pager cannot disagree with the server.
+`GET` returns `{ items, page, per_page, total, has_next, sort }`. `sort` is
+`oldest` (default - reading order for a thread, the opposite of posts) or `top`
+by score with an oldest-first tie-break so paging stays stable. Unknown values
+fall back to `oldest`, and the response **echoes what was applied**, so the app
+reads the echo rather than assuming its request was honoured. `per_page` clamps
+to 100; the app clamps client-side too so the pager cannot disagree.
 
 `POST` takes a body of at most 1000 characters, trimmed, and returns `201` with
 the bare comment object - not wrapped in an envelope:

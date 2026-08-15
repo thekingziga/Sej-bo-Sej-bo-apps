@@ -15,8 +15,6 @@ class Prefs {
 
   static const _kLang = 'lang';
   static const _kDeviceId = 'device_id';
-  static const _kVotePrefix = 'vote_';
-  static const _kCommentVotePrefix = 'cvote_';
   static const _kFeedCache = 'feed_cache';
   static const _kFeedCachedAt = 'feed_cached_at';
   static const _kMyComments = 'my_comments';
@@ -49,31 +47,11 @@ class Prefs {
   }
 
   // ----------------------------------------------------------------- votes
-
-  /// -1, 0 or 1. Kept locally so the buttons show your own choice immediately,
-  /// including offline and before the server round trip lands.
-  int voteFor(int postId) => _p.getInt('$_kVotePrefix$postId') ?? 0;
-
-  Future<void> setVote(int postId, int value) async {
-    if (value == 0) {
-      await _p.remove('$_kVotePrefix$postId');
-    } else {
-      await _p.setInt('$_kVotePrefix$postId', value);
-    }
-  }
-
-  /// Same as [voteFor], for a comment. Kept under its own key prefix: comment
-  /// ids and post ids are separate sequences, so sharing one would have comment
-  /// 7 inherit post 7's vote.
-  int commentVoteFor(int commentId) => _p.getInt('$_kCommentVotePrefix$commentId') ?? 0;
-
-  Future<void> setCommentVote(int commentId, int value) async {
-    if (value == 0) {
-      await _p.remove('$_kCommentVotePrefix$commentId');
-    } else {
-      await _p.setInt('$_kCommentVotePrefix$commentId', value);
-    }
-  }
+  //
+  // There is no local vote ledger any more. The server returns `my_vote` on
+  // every read that carries an X-Device-Id, so the app asks rather than
+  // remembers. The old ledger was wrong on a fresh install - reinstall and
+  // every post read as unvoted, which also let you vote a second time.
 
   // -------------------------------------------------------------- comments
 

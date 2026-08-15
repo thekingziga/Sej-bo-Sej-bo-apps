@@ -43,7 +43,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final feed = await widget.api.feed(lang: widget.prefs.lang == Lang.sl ? 'sl' : 'en');
     if (feed.posts.isNotEmpty) {
       _hero = feed.posts.first;
-      _heroVote = widget.prefs.voteFor(_hero!.id);
+      // The server knows what this device voted, so there is nothing to look
+      // up locally. Null means it could not tell us; paint that as unvoted.
+      _heroVote = _hero!.myVote ?? 0;
     }
     return feed;
   }
@@ -70,18 +72,23 @@ class _HomeScreenState extends State<HomeScreen> {
       _heroVote = value;
       _hero = _applyVote(post, previous, value);
     });
-    await widget.prefs.setVote(post.id, value);
 
     try {
       final updated = await widget.api.vote(post.id, value);
-      if (mounted) setState(() => _hero = updated);
+      // Reconcile against the server's own answer, my_vote included, rather
+      // than trusting the optimistic guess.
+      if (mounted) {
+        setState(() {
+          _hero = updated;
+          _heroVote = updated.myVote ?? value;
+        });
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _heroVote = previous;
         _hero = before;
       });
-      await widget.prefs.setVote(post.id, previous);
     }
   }
 

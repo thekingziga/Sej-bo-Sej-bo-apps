@@ -206,19 +206,20 @@ void main() {
     expect(find.text('Put the router in the fridge'), findsWidgets);
   });
 
-  testWidgets('voting on the hero updates the count and persists', (tester) async {
-    final prefs = await pumpApp(tester);
+  testWidgets('voting on the hero moves the count and sticks after the server replies',
+      (tester) async {
+    await pumpApp(tester);
 
     expect(find.text('128'), findsWidgets, reason: 'hero starts on 128 upvotes');
 
     await tester.tap(find.text('SEJ BO').first);
     await tester.pump();
-
     expect(find.text('129'), findsWidgets, reason: 'count moves optimistically');
-    expect(prefs.voteFor(9), 1, reason: 'vote is remembered across launches');
 
-    // Drain the demo vote() delay, or the binding fails on a pending timer.
+    // Let the response land: the count must survive reconciliation rather than
+    // snapping back, since the server's my_vote now replaces the local guess.
     await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('129'), findsWidgets, reason: 'server response agreed');
   });
 
   testWidgets('switching to Slovenian translates the chrome', (tester) async {
@@ -298,6 +299,172 @@ void main() {
           isFalse,
         );
       }
+    });
+  });
+
+  group('my_vote', () {
+    // The whole point of the field is the difference between "unknown" and
+    // "not voted". Collapsing them is the bug it exists to fix.
+    test('a missing field is unknown, NOT unvoted', () {
+      expect(Post.fromJson({'id': 1, 'title': 'x', 'created_at': ''}).myVote, isNull);
+      expect(Comment.fromJson({'id': 1, 'created_at': ''}).myVote, isNull);
+    });
+
+    test('an explicit 0 means known and unvoted', () {
+      expect(Post.fromJson({'id': 1, 'title': '', 'created_at': '', 'my_vote': 0}).myVote, 0);
+      expect(Comment.fromJson({'id': 1, 'created_at': '', 'my_vote': 0}).myVote, 0);
+    });
+
+    test('carries 1 and -1 through', () {
+      expect(Post.fromJson({'id': 1, 'title': '', 'created_at': '', 'my_vote': 1}).myVote, 1);
+      expect(Post.fromJson({'id': 1, 'title': '', 'created_at': '', 'my_vote': -1}).myVote, -1);
+    });
+
+    test('the offline cache round-trip preserves unknown as unknown', () {
+      // toJson omits the key when null; re-parsing must not invent a 0, or a
+      // cached feed would claim the user has not voted on anything.
+      final unknown = Post.fromJson({'id': 1, 'title': 'x', 'created_at': ''});
+      expect(unknown.toJson().containsKey('my_vote'), isFalse);
+      expect(Post.fromJson(unknown.toJson()).myVote, isNull);
+
+      final voted = Post.fromJson({'id': 1, 'title': 'x', 'created_at': '', 'my_vote': -1});
+      expect(Post.fromJson(voted.toJson()).myVote, -1);
+    });
+
+    test('reads send the device id, since my_vote is keyed off it', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      final seen = <http.BaseRequest>[];
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        prefs: prefs,
+        client: MockClient((req) async {
+          seen.add(req);
+          return http.Response('{"items":[],"page":1,"total":0,"has_next":false}', 200);
+        }),
+      );
+
+      await api.posts();
+      await api.comments(1);
+      expect(seen, hasLength(2));
+      for (final req in seen) {
+        expect(req.headers['X-Device-Id'], prefs.deviceId,
+            reason: 'without it the server omits my_vote entirely');
+      }
+    });
+
+    test('no prefs means no device id, and the field stays unknown', () async {
+      late http.BaseRequest sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"items":[{"id":1,"title":"x","created_at":""}]}', 200);
+        }),
+      );
+      final page = await api.posts();
+      expect(sent.headers.keys.map((k) => k.toLowerCase()), isNot(contains('x-device-id')));
+      expect(page.items.single.myVote, isNull);
+    });
+  });
+
+  group('rate limiting', () {
+    Api build(Map<String, String> headers, String body) => Api(
+          baseUrl: 'https://example.test',
+          useDemoData: false,
+          client: MockClient((_) async => http.Response(body, 429, headers: headers)),
+        );
+
+    test('reads Retry-After from the header', () async {
+      await expectLater(
+        () => build({'retry-after': '40'}, '{"error":"too fast"}').addComment(1, 'x'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 40))),
+      );
+    });
+
+    test('falls back to retry_after_seconds when the header is stripped', () async {
+      // Proxies drop headers; the body carries the same number for that case.
+      await expectLater(
+        () => build({}, '{"error":"too fast","retry_after_seconds":25}').addComment(1, 'x'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 25))),
+      );
+    });
+
+    test("shows the server's own wording, which names the limit that was hit", () async {
+      final api = build({'retry-after': '40'},
+          '{"error":"Too many comments from this address. Give it a minute."}');
+      await expectLater(
+        () => api.addComment(1, 'x'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', contains('Give it a minute'))),
+      );
+    });
+
+    test('a 429 with no timing at all still throws, just without a countdown', () async {
+      await expectLater(
+        () => build({}, 'not json').addComment(1, 'x'),
+        throwsA(isA<ApiException>().having((e) => e.retryAfter, 'retryAfter', isNull)),
+      );
+    });
+
+    test('applies to votes and reports too', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      final voteApi = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        prefs: prefs,
+        client: MockClient((_) async => http.Response('{}', 429, headers: {'retry-after': '5'})),
+      );
+      await expectLater(
+        () => voteApi.voteComment(1, 1),
+        throwsA(isA<ApiException>()
+            .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 5))),
+      );
+
+      await expectLater(
+        () => build({'retry-after': '900'}, '{}').reportPost(1, ReportReason.spam),
+        throwsA(isA<ApiException>()
+            .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 900))),
+      );
+    });
+  });
+
+  group('comment sort', () {
+    test('sends the requested sort and reads the echo', () async {
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"items":[],"sort":"top"}', 200);
+        }),
+      );
+      final page = await api.comments(1, sort: CommentSort.top);
+      expect(sent.url.queryParameters['sort'], 'top');
+      expect(page.sort, CommentSort.top);
+    });
+
+    test('trusts the echo over the request', () async {
+      // The server falls back to oldest on anything it does not recognise, so
+      // the UI must read what was applied rather than assume it got its way.
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((_) async => http.Response('{"items":[],"sort":"oldest"}', 200)),
+      );
+      expect((await api.comments(1, sort: CommentSort.top)).sort, CommentSort.oldest);
+    });
+
+    test('an unknown or missing sort reads as oldest', () {
+      expect(CommentSort.fromWire('nonsense'), CommentSort.oldest);
+      expect(CommentSort.fromWire(null), CommentSort.oldest);
+      expect(CommentSort.fromWire('top'), CommentSort.top);
     });
   });
 
@@ -607,15 +774,22 @@ void _commentTests() {
       expect(applyVoteDelta(0, 0, 1, 0), (up: 0, down: 0));
     });
 
-    test('comment votes are stored apart from post votes with the same id', () async {
-      // Comment ids and post ids are separate sequences, so a shared key prefix
-      // would have comment 7 inherit post 7's vote.
+    test('the vote response carries my_vote, which the UI reconciles against', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await Prefs.load();
-      await prefs.setVote(7, 1);
-      await prefs.setCommentVote(7, -1);
-      expect(prefs.voteFor(7), 1);
-      expect(prefs.commentVoteFor(7), -1);
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        prefs: prefs,
+        client: MockClient(
+          (_) async => http.Response(
+            '{"id":6,"post_id":57,"body":"x","created_at":"","upvotes":1,'
+            '"downvotes":0,"my_vote":1}',
+            200,
+          ),
+        ),
+      );
+      expect((await api.voteComment(6, 1)).myVote, 1);
     });
   });
 

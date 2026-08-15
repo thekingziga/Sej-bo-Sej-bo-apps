@@ -24,6 +24,7 @@ class Post {
     this.upvotes = 0,
     this.downvotes = 0,
     this.commentCount = 0,
+    this.myVote,
   });
 
   final int id;
@@ -56,12 +57,26 @@ class Post {
   /// nudges it locally so a freshly posted comment shows up without a refetch.
   final int commentCount;
 
+  /// This device's vote, straight from the server: 1, -1, or 0 for "known, and
+  /// has not voted".
+  ///
+  /// **Null means unknown, not unvoted.** The server omits the field entirely
+  /// when the request carried no usable `X-Device-Id`, and collapsing that into
+  /// 0 would reintroduce the bug this field exists to fix - a button rendered
+  /// unvoted for something already voted, which is also the cheapest way to
+  /// vote twice. Never write `myVote ?? 0` at the parse layer; only the widget
+  /// that has to paint *something* may fall back, and only for display.
+  final int? myVote;
+
   int get score => upvotes - downvotes;
 
   String shareUrl(String base) =>
       '${base.isEmpty ? 'https://sejbosejbo.fyi' : base}/post/$id';
 
-  Post copyWith({int? upvotes, int? downvotes, int? commentCount}) => Post(
+  /// [myVote] is deliberately not nullable-through: passing null here keeps the
+  /// current value rather than erasing it to "unknown". Use [withUnknownVote]
+  /// for that, which nothing currently needs.
+  Post copyWith({int? upvotes, int? downvotes, int? commentCount, int? myVote}) => Post(
     id: id,
     title: title,
     description: description,
@@ -73,6 +88,7 @@ class Post {
     upvotes: upvotes ?? this.upvotes,
     downvotes: downvotes ?? this.downvotes,
     commentCount: commentCount ?? this.commentCount,
+    myVote: myVote ?? this.myVote,
   );
 
   /// The kinds this build knows how to render.
@@ -101,6 +117,8 @@ class Post {
     upvotes: (j['upvotes'] as num?)?.toInt() ?? 0,
     downvotes: (j['downvotes'] as num?)?.toInt() ?? 0,
     commentCount: (j['comment_count'] as num?)?.toInt() ?? 0,
+    // No `?? 0` here, on purpose. See [myVote].
+    myVote: (j['my_vote'] as num?)?.toInt(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -115,6 +133,9 @@ class Post {
     'upvotes': upvotes,
     'downvotes': downvotes,
     'comment_count': commentCount,
+    // Omitted when unknown, so a round trip through the offline cache preserves
+    // "unknown" rather than turning it into "not voted".
+    if (myVote != null) 'my_vote': myVote,
   };
 }
 
@@ -128,6 +149,7 @@ class Comment {
     required this.createdAt,
     this.upvotes = 0,
     this.downvotes = 0,
+    this.myVote,
   });
 
   final int id;
@@ -139,19 +161,23 @@ class Comment {
   final int upvotes;
   final int downvotes;
 
+  /// Null means unknown, not unvoted - see [Post.myVote].
+  final int? myVote;
+
   int get score => upvotes - downvotes;
 
   /// The server trims and rejects past this; the composer enforces it too so a
   /// long comment fails in the text field rather than after a round trip.
   static const maxLength = 1000;
 
-  Comment copyWith({int? upvotes, int? downvotes}) => Comment(
+  Comment copyWith({int? upvotes, int? downvotes, int? myVote}) => Comment(
     id: id,
     postId: postId,
     body: body,
     createdAt: createdAt,
     upvotes: upvotes ?? this.upvotes,
     downvotes: downvotes ?? this.downvotes,
+    myVote: myVote ?? this.myVote,
   );
 
   factory Comment.fromJson(Map<String, dynamic> j) => Comment(
@@ -161,7 +187,25 @@ class Comment {
     createdAt: DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ?? DateTime.now(),
     upvotes: (j['upvotes'] as num?)?.toInt() ?? 0,
     downvotes: (j['downvotes'] as num?)?.toInt() ?? 0,
+    myVote: (j['my_vote'] as num?)?.toInt(),
   );
+}
+
+/// How a comment thread is ordered. `oldest` is the default and stays the
+/// default - a thread is a conversation, and reordering it by score by default
+/// would break the replies that answer each other.
+enum CommentSort {
+  oldest('oldest'),
+  top('top');
+
+  const CommentSort(this.wire);
+  final String wire;
+
+  /// The server echoes the sort it actually applied and falls back to `oldest`
+  /// on anything it does not recognise, so the UI reads the echo rather than
+  /// assuming its request was honoured.
+  static CommentSort fromWire(String? wire) =>
+      values.where((s) => s.wire == wire).firstOrNull ?? CommentSort.oldest;
 }
 
 /// A page of comments. Oldest first, which is reading order for a thread -
@@ -172,12 +216,16 @@ class CommentPage {
     required this.page,
     required this.total,
     required this.hasNext,
+    this.sort = CommentSort.oldest,
   });
 
   final List<Comment> items;
   final int page;
   final int total;
   final bool hasNext;
+
+  /// What the server actually sorted by, not what was asked for.
+  final CommentSort sort;
 
   /// The server clamps `per_page` here, so asking for more just wastes a header.
   static const maxPerPage = 100;
@@ -189,6 +237,7 @@ class CommentPage {
     page: (j['page'] as num?)?.toInt() ?? 1,
     total: (j['total'] as num?)?.toInt() ?? 0,
     hasNext: j['has_next'] == true,
+    sort: CommentSort.fromWire(j['sort'] as String?),
   );
 }
 

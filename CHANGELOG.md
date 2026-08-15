@@ -9,6 +9,54 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.8.0+10
+
+Votes now come from the server, not from this phone.
+
+**Fixed**
+- **Votes survive a reinstall.** The app kept its own vote ledger in local
+  storage, which made it wrong the moment that storage went away: reinstall, or
+  clear app data, and every post read as unvoted - and you could vote on it a
+  second time. The server now returns `my_vote` on every read, so the app asks
+  instead of remembering. The whole local ledger is deleted.
+
+**Added**
+- **Rate limits count down.** A 429 carries `Retry-After`, so instead of a vague
+  "slow down" the app disables the control and says "try again in 40s". The
+  window is sliding, so retrying early pushed the reset further out - the old
+  behaviour actively made things worse.
+- **OLDEST / TOP toggle** on threads longer than three comments. Chronological
+  stays the default, because a thread is a conversation and reordering it by
+  score breaks replies that answer each other.
+
+**Changed**
+- `my_vote` is modelled as `int?`, where **null means unknown, not unvoted**.
+  The server omits the field when it cannot identify the caller, and defaulting
+  that to 0 would reintroduce the exact bug the field fixes. There is a test
+  asserting a missing field stays null, including through the offline cache.
+- The device id now goes out on reads as well as writes, since `my_vote` is
+  keyed off it.
+- Comment sort reads the server's echo rather than assuming the request was
+  honoured.
+
+**Verified**
+- Round-tripped against production: an anonymous read returns no `my_vote` at
+  all, an identified one returns 0, a vote comes back 1, and a **fresh GET
+  still says 1** - which is the whole point. Also confirmed the app never
+  rebuilds an image URL, so uploads can move to S3 without an app release.
+  62 tests, up from 48.
+
+```
+Your votes now stick. They used to be forgotten if you reinstalled the app or
+cleared its data - now the server remembers them.
+
+Long comment threads can be sorted by top instead of oldest.
+
+If you hit a limit, the app tells you exactly how long to wait.
+```
+
+---
+
 ## 1.7.0+9
 
 Comments can be voted on and reported, using the same widget and the same

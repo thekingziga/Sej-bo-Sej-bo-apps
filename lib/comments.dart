@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -49,9 +51,17 @@ class _CommentsSectionState extends State<CommentsSection> {
   String? _sendError;
   Set<int> _mine = const {};
 
-  /// Mirror of the persisted comment votes, so the buttons show your own choice
-  /// without a Prefs read on every rebuild.
+  /// This device's vote per comment, seeded from the server's `my_vote` and
+  /// then moved optimistically. Not persisted - the server is the record.
   final _votes = <int, int>{};
+
+  CommentSort _sort = CommentSort.oldest;
+
+  /// Seconds left on a rate limit, straight from the server's Retry-After.
+  /// While this is non-zero the composer and vote buttons are disabled - the
+  /// window is sliding, so retrying early only pushes the reset further out.
+  int _cooldown = 0;
+  Timer? _cooldownTimer;
 
   @override
   void initState() {
@@ -64,6 +74,7 @@ class _CommentsSectionState extends State<CommentsSection> {
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _controller
       ..removeListener(_onTyped)
       ..dispose();
@@ -71,9 +82,23 @@ class _CommentsSectionState extends State<CommentsSection> {
     super.dispose();
   }
 
+  /// Starts the countdown for a rate-limited response. No-op if the server did
+  /// not say how long, in which case the plain error message stands on its own.
+  void _startCooldown(ApiException e) {
+    final wait = e.retryAfter;
+    if (wait == null) return;
+    _cooldownTimer?.cancel();
+    setState(() => _cooldown = wait.inSeconds);
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return timer.cancel();
+      setState(() => _cooldown--);
+      if (_cooldown <= 0) timer.cancel();
+    });
+  }
+
   void _onTyped() => setState(() {});
 
-  bool get _canSend => _controller.text.trim().isNotEmpty && !_sending;
+  bool get _canSend => _controller.text.trim().isNotEmpty && !_sending && _cooldown <= 0;
 
   /// Optimistic, with rollback - the same contract as post voting, because a
   /// count that visibly lags behind the tap reads as broken.
@@ -81,7 +106,7 @@ class _CommentsSectionState extends State<CommentsSection> {
     final i = _items.indexWhere((c) => c.id == comment.id);
     if (i < 0) return;
 
-    final previous = widget.prefs?.commentVoteFor(comment.id) ?? _votes[comment.id] ?? 0;
+    final previous = _votes[comment.id] ?? comment.myVote ?? 0;
     final before = _items[i];
     final next = applyVoteDelta(before.upvotes, before.downvotes, previous, value);
 
@@ -89,13 +114,25 @@ class _CommentsSectionState extends State<CommentsSection> {
       _votes[comment.id] = value;
       _items[i] = before.copyWith(upvotes: next.up, downvotes: next.down);
     });
-    await widget.prefs?.setCommentVote(comment.id, value);
 
     try {
       final updated = await widget.api.voteComment(comment.id, value);
       if (!mounted) return;
       final j = _items.indexWhere((c) => c.id == comment.id);
-      if (j >= 0) setState(() => _items[j] = updated);
+      setState(() {
+        // The response carries my_vote, so reconcile against it rather than
+        // keeping the optimistic guess.
+        _votes[comment.id] = updated.myVote ?? value;
+        if (j >= 0) _items[j] = updated;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      final j = _items.indexWhere((c) => c.id == comment.id);
+      setState(() {
+        _votes[comment.id] = previous;
+        if (j >= 0) _items[j] = before;
+      });
+      _startCooldown(e);
     } catch (_) {
       if (!mounted) return;
       final j = _items.indexWhere((c) => c.id == comment.id);
@@ -103,7 +140,6 @@ class _CommentsSectionState extends State<CommentsSection> {
         _votes[comment.id] = previous;
         if (j >= 0) _items[j] = before;
       });
-      await widget.prefs?.setCommentVote(comment.id, previous);
     }
   }
 
@@ -113,18 +149,21 @@ class _CommentsSectionState extends State<CommentsSection> {
       _loadError = null;
     });
     try {
-      final page = await widget.api.comments(widget.postId);
+      final page = await widget.api.comments(widget.postId, sort: _sort);
       if (!mounted) return;
       setState(() {
         _items
           ..clear()
           ..addAll(page.items);
         for (final c in page.items) {
-          _votes[c.id] = widget.prefs?.commentVoteFor(c.id) ?? 0;
+          _votes[c.id] = c.myVote ?? 0;
         }
         _page = page.page;
         _hasNext = page.hasNext;
         _total = page.total;
+        // What the server actually sorted by, which is not necessarily what
+        // was asked for - unknown values fall back to oldest.
+        _sort = page.sort;
       });
     } catch (e) {
       if (mounted) setState(() => _loadError = '$e');
@@ -137,12 +176,12 @@ class _CommentsSectionState extends State<CommentsSection> {
     if (_loadingMore || !_hasNext) return;
     setState(() => _loadingMore = true);
     try {
-      final page = await widget.api.comments(widget.postId, page: _page + 1);
+      final page = await widget.api.comments(widget.postId, page: _page + 1, sort: _sort);
       if (!mounted) return;
       setState(() {
         _items.addAll(page.items);
         for (final c in page.items) {
-          _votes[c.id] = widget.prefs?.commentVoteFor(c.id) ?? 0;
+          _votes[c.id] = c.myVote ?? 0;
         }
         _page = page.page;
         _hasNext = page.hasNext;
@@ -186,12 +225,12 @@ class _CommentsSectionState extends State<CommentsSection> {
         ),
       );
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _sendError = '$e';
-          _sending = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _sendError = '$e';
+        _sending = false;
+      });
+      if (e is ApiException) _startCooldown(e);
     }
   }
 
@@ -214,6 +253,21 @@ class _CommentsSectionState extends State<CommentsSection> {
                   border: Border.all(color: Brutal.ink, width: 2),
                 ),
                 child: Text('$_total', style: Brutal.display.copyWith(fontSize: 14)),
+              ),
+            const Spacer(),
+            // Only worth offering once a thread is long enough to need it. The
+            // default stays chronological: a thread is a conversation, and
+            // reordering by score breaks replies that answer each other.
+            if (!_loading && _total > 3)
+              _SortToggle(
+                sort: _sort,
+                oldestLabel: t['sortOldest'],
+                topLabel: t['sortBest'],
+                onChanged: (s) {
+                  if (s == _sort) return;
+                  setState(() => _sort = s);
+                  _load();
+                },
               ),
           ],
         ),
@@ -299,6 +353,19 @@ class _CommentsSectionState extends State<CommentsSection> {
         ],
 
         const SizedBox(height: 16),
+        if (_cooldown > 0) ...[
+          BrutalBox(
+            color: Brutal.yellow,
+            dx: 3,
+            dy: 3,
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              t['retryIn'].replaceAll('{s}', '$_cooldown'),
+              style: Brutal.body.copyWith(fontSize: 14),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         _Composer(
           controller: _controller,
           focus: _focus,
@@ -318,6 +385,49 @@ class _CommentsSectionState extends State<CommentsSection> {
             child: Text(_sendError!, style: Brutal.body.copyWith(fontSize: 14)),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// OLDEST / TOP switch for a thread.
+class _SortToggle extends StatelessWidget {
+  const _SortToggle({
+    required this.sort,
+    required this.oldestLabel,
+    required this.topLabel,
+    required this.onChanged,
+  });
+
+  final CommentSort sort;
+  final String oldestLabel;
+  final String topLabel;
+  final ValueChanged<CommentSort> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(CommentSort value, String label) {
+      final active = sort == value;
+      return GestureDetector(
+        onTap: () => onChanged(value),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: active ? Brutal.yellow : Brutal.paper,
+            border: Border.all(color: Brutal.ink, width: 2),
+          ),
+          child: Text(label, style: Brutal.label.copyWith(fontSize: 10)),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        chip(CommentSort.oldest, oldestLabel),
+        const SizedBox(width: 5),
+        chip(CommentSort.top, topLabel),
       ],
     );
   }
