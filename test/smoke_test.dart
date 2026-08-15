@@ -13,6 +13,8 @@ import 'package:sejbosejbo/models.dart';
 import 'package:sejbosejbo/prefs.dart';
 import 'package:sejbosejbo/screens/detail.dart';
 import 'package:sejbosejbo/theme.dart';
+import 'package:sejbosejbo/update_gate.dart';
+import 'package:sejbosejbo/version.dart';
 import 'package:sejbosejbo/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -187,6 +189,67 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('VIDEO'), findsOneWidget);
     expect(find.byType(Image), findsNothing, reason: 'never hand an .mp4 to Image.network');
+  });
+
+  testWidgets('the gate lets the app through when the server says nothing', (tester) async {
+    AppVersion.cachedForTest = const AppVersion(version: '1.8.0', build: '10');
+    addTearDown(() => AppVersion.cachedForTest = null);
+
+    final api = Api(
+      baseUrl: 'https://example.test',
+      useDemoData: false,
+      client: MockClient((_) async => http.Response('', 404)),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.en,
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: UpdateGate(api: api, child: const Scaffold(body: Text('THE APP'))),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('THE APP'), findsOneWidget, reason: 'no endpoint must not lock anyone out');
+    expect(find.text('UPDATE REQUIRED'), findsNothing);
+  });
+
+  testWidgets('the gate walls the app off when the build is too old', (tester) async {
+    AppVersion.cachedForTest = const AppVersion(version: '1.4.0', build: '5');
+    addTearDown(() => AppVersion.cachedForTest = null);
+
+    final api = Api(
+      baseUrl: 'https://example.test',
+      useDemoData: false,
+      client: MockClient(
+        (_) async => http.Response('{"min_version":"1.8.0","message":"Voting moved."}', 200),
+      ),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.en,
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: UpdateGate(api: api, child: const Scaffold(body: Text('THE APP'))),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('UPDATE REQUIRED'), findsOneWidget);
+    expect(find.text('UPDATE NOW'), findsOneWidget);
+    expect(find.text('Voting moved.'), findsOneWidget, reason: "server's reason is shown");
+    expect(find.text('THE APP'), findsNothing, reason: 'the app must be unreachable');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('hall of fame is ordered by score, highest first', (tester) async {
@@ -465,6 +528,103 @@ void main() {
       expect(CommentSort.fromWire('nonsense'), CommentSort.oldest);
       expect(CommentSort.fromWire(null), CommentSort.oldest);
       expect(CommentSort.fromWire('top'), CommentSort.top);
+    });
+  });
+
+  group('version comparison', () {
+    test('compares numerically, not as strings', () {
+      // The bug this exists to prevent: '1.10.0' sorts BEFORE '1.9.0'
+      // lexically, so a string-compared gate silently stops gating at 1.10.
+      expect('1.10.0'.compareTo('1.9.0') < 0, isTrue, reason: 'string compare is wrong');
+      expect(compareVersions('1.10.0', '1.9.0'), greaterThan(0));
+      expect(compareVersions('2.0.0', '1.99.99'), greaterThan(0));
+      expect(compareVersions('1.8.0', '1.8.0'), 0);
+      expect(compareVersions('1.8.0', '1.8.1'), lessThan(0));
+    });
+
+    test('missing segments count as zero', () {
+      expect(compareVersions('1.8', '1.8.0'), 0);
+      expect(compareVersions('1', '1.0.0'), 0);
+      expect(compareVersions('1.8', '1.8.1'), lessThan(0));
+    });
+
+    test('ignores build and pre-release suffixes', () {
+      expect(compareVersions('1.8.0+10', '1.8.0'), 0);
+      expect(compareVersions('1.8.0+10', '1.8.0+99'), 0, reason: 'build number is Play\'s concern');
+      expect(compareVersions('2.0-rc1', '2.0.0'), 0);
+    });
+  });
+
+  group('update gate', () {
+    const mine = '1.8.0';
+
+    test('blocks only when strictly older than min_version', () {
+      expect(AppRelease.fromJson({'min_version': '1.9.0'}).blocks(mine), isTrue);
+      expect(AppRelease.fromJson({'min_version': '1.8.0'}).blocks(mine), isFalse,
+          reason: 'equal to the minimum is allowed');
+      expect(AppRelease.fromJson({'min_version': '1.7.0'}).blocks(mine), isFalse);
+      expect(AppRelease.fromJson({'min_version': '1.10.0'}).blocks(mine), isTrue,
+          reason: 'double-digit minor must still gate');
+    });
+
+    test('never blocks on a missing, empty or junk min_version', () {
+      // Fail open. A gate that fails closed bricks every install at once, and
+      // the only fix would be a store release.
+      expect(AppRelease.fromJson(const {}).blocks(mine), isFalse);
+      expect(AppRelease.fromJson({'min_version': ''}).blocks(mine), isFalse);
+      expect(AppRelease.fromJson({'min_version': '   '}).blocks(mine), isFalse);
+      expect(AppRelease.fromJson({'min_version': 'latest'}).blocks(mine), isFalse);
+      expect(AppRelease.fromJson({'min_version': 'null'}).blocks(mine), isFalse);
+    });
+
+    test('a soft update nudge is separate from the hard block', () {
+      final r = AppRelease.fromJson({'min_version': '1.0.0', 'latest_version': '1.9.0'});
+      expect(r.blocks(mine), isFalse, reason: 'newer existing is not a reason to lock out');
+      expect(r.updateAvailable(mine), isTrue);
+    });
+
+    test('release() returns null on every kind of failure, so nothing blocks', () async {
+      Future<void> expectNull(http.Response Function() respond) async {
+        final api = Api(
+          baseUrl: 'https://example.test',
+          useDemoData: false,
+          client: MockClient((_) async => respond()),
+        );
+        expect(await api.release(), isNull);
+      }
+
+      await expectNull(() => http.Response('', 404));       // endpoint not shipped
+      await expectNull(() => http.Response('', 500));       // server on fire
+      await expectNull(() => http.Response('<html>', 200)); // captive portal
+      await expectNull(() => http.Response('null', 200));   // valid JSON, wrong shape
+
+      final offline = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((_) async => throw Exception('no network')),
+      );
+      expect(await offline.release(), isNull);
+    });
+
+    test('parses the documented shape', () async {
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient(
+          (_) async => http.Response(
+            '{"min_version":"1.5.0","latest_version":"1.8.0",'
+            '"server_version":"1.13.0","message":"Voting changed."}',
+            200,
+          ),
+        ),
+      );
+      final r = await api.release();
+      expect(r!.minVersion, '1.5.0');
+      expect(r.latestVersion, '1.8.0');
+      expect(r.serverVersion, '1.13.0');
+      expect(r.message, 'Voting changed.');
+      expect(r.blocks('1.8.0'), isFalse);
+      expect(r.blocks('1.4.0'), isTrue);
     });
   });
 

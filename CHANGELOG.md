@@ -9,6 +9,48 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.9.0+11
+
+Version numbers on screen, and a kill switch for old builds.
+
+**Added**
+- **Version shown on the Support tab** - `App v1.9.0 (11)`, read from the
+  platform rather than hardcoded so it can never drift from what shipped. The
+  website's version appears beneath it once the API reports one. This exists so
+  a bug report can name both halves.
+- **Forced-update gate.** When the server names a `min_version` newer than the
+  installed build, the app shows a full-screen wall with an UPDATE NOW button
+  and no way past it. The server can supply its own reason, which is shown
+  instead of the generic line.
+
+**Design notes, because this one can bite**
+- The gate keys off an explicit `min_version` you raise deliberately - *not*
+  off "a newer build exists". Play rolls out gradually, so for hours after an
+  upload there are users who cannot get the new version yet; blocking them
+  would lock people out of an app they have no way to fix.
+- It **fails open** on everything: no endpoint, 404, 500, offline, HTML from a
+  captive portal, junk in the field - all treated as "no opinion". A gate that
+  failed closed would brick every install the moment the Pi hiccupped, and the
+  only fix would be a store release.
+- Versions compare numerically, segment by segment. A string compare puts
+  `1.10.0` *before* `1.9.0`, which would silently stop gating at 1.10 - there
+  is a test asserting exactly that trap.
+
+**Blocked on**
+- The endpoint does not exist yet, so nothing gates and no site version shows.
+  Spec in `docs/API_REQUEST_version.md`. Until then the app behaves exactly as
+  1.8.0 did.
+
+```
+The app now shows its version on the Support tab, which makes bug reports much
+easier.
+
+Added support for required updates, so a build that can no longer talk to the
+website tells you instead of misbehaving.
+```
+
+---
+
 ## 1.8.0+10
 
 Votes now come from the server, not from this phone.

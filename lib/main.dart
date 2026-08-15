@@ -13,6 +13,7 @@ import 'screens/gallery.dart';
 import 'screens/home.dart';
 import 'screens/upload.dart';
 import 'theme.dart';
+import 'update_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,7 +94,13 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
         debugShowCheckedModeBanner: false,
         theme: Brutal.theme(),
         navigatorKey: _navigatorKey,
-        home: Shell(api: _api, donations: _donations, prefs: widget.prefs),
+        // Wrapped, not routed to: the gate must be impossible to navigate
+        // around, and this way it also covers a deep link that opens straight
+        // onto a post.
+        home: UpdateGate(
+          api: _api,
+          child: Shell(api: _api, donations: _donations, prefs: widget.prefs),
+        ),
       ),
     );
   }

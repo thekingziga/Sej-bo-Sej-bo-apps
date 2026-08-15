@@ -1,6 +1,8 @@
 // Wire models. These mirror docs/API_PROMPT.md exactly - if you change a field
 // here, change it there too, or the app and the website will drift apart.
 
+import 'version.dart';
+
 /// How the gallery is ordered. The value is sent to the API as `?sort=`.
 enum PostSort {
   newest('newest'),
@@ -73,9 +75,9 @@ class Post {
   String shareUrl(String base) =>
       '${base.isEmpty ? 'https://sejbosejbo.fyi' : base}/post/$id';
 
-  /// [myVote] is deliberately not nullable-through: passing null here keeps the
-  /// current value rather than erasing it to "unknown". Use [withUnknownVote]
-  /// for that, which nothing currently needs.
+  /// Passing null for [myVote] keeps the current value rather than erasing it
+  /// to "unknown" - nothing needs to erase it, and a copyWith that could would
+  /// be an easy way to lose the distinction by accident.
   Post copyWith({int? upvotes, int? downvotes, int? commentCount, int? myVote}) => Post(
     id: id,
     title: title,
@@ -360,6 +362,56 @@ enum ReportTarget {
   final String path;
 }
 
+/// What the server says about app versions, plus its own version so the two
+/// numbers can be shown side by side.
+///
+/// Every field is optional. A server that has not shipped this endpoint, or a
+/// response that is missing pieces, must leave the app fully usable - see
+/// [blocks].
+class AppRelease {
+  const AppRelease({this.minVersion, this.latestVersion, this.serverVersion, this.message});
+
+  /// The oldest version still allowed to run. Below this the app blocks.
+  final String? minVersion;
+
+  /// The newest version available, for a non-blocking "update available" nudge.
+  final String? latestVersion;
+
+  /// The website/API's own version, shown next to the app's.
+  final String? serverVersion;
+
+  /// Optional line explaining *why* an update is required, shown on the gate.
+  final String? message;
+
+  /// Whether [current] is old enough to be locked out.
+  ///
+  /// Deliberately conservative: an absent or unparseable [minVersion] never
+  /// blocks. A version gate that fails closed is far worse than one that fails
+  /// open - a typo in an env var, or the Pi being down, would otherwise brick
+  /// every install at once with no way to push a fix except through the store.
+  bool blocks(String current) {
+    final min = minVersion?.trim();
+    if (min == null || min.isEmpty) return false;
+    if (!RegExp(r'^\d').hasMatch(min)) return false;
+    return compareVersions(current, min) < 0;
+  }
+
+  /// Whether a newer version exists, without it being mandatory.
+  bool updateAvailable(String current) {
+    final latest = latestVersion?.trim();
+    if (latest == null || latest.isEmpty) return false;
+    if (!RegExp(r'^\d').hasMatch(latest)) return false;
+    return compareVersions(current, latest) < 0;
+  }
+
+  factory AppRelease.fromJson(Map<String, dynamic> j) => AppRelease(
+    minVersion: j['min_version'] as String?,
+    latestVersion: j['latest_version'] as String?,
+    serverVersion: j['server_version'] as String?,
+    message: j['message'] as String?,
+  );
+}
+
 /// Public URLs the app links to but never calls as an API.
 class Links {
   const Links._();
@@ -367,6 +419,13 @@ class Links {
   static const privacy = 'https://sejbosejbo.fyi/privacy';
   static const terms = 'https://sejbosejbo.fyi/terms';
   static const website = 'https://sejbosejbo.fyi';
+
+  /// Where the update button goes. The `market:` scheme opens the Play app
+  /// directly; the https form is the fallback for anything without it,
+  /// including a desktop browser.
+  static const playStore = 'market://details?id=com.thekingziga.sejbosejbo';
+  static const playStoreWeb =
+      'https://play.google.com/store/apps/details?id=com.thekingziga.sejbosejbo';
 }
 
 /// A support tier. Amounts are minor units (cents) so there is no float money.

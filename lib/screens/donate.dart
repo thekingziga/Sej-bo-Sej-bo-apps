@@ -8,6 +8,7 @@ import '../l10n.dart';
 import '../donations.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../update_gate.dart';
 import '../widgets.dart';
 
 class DonateScreen extends StatefulWidget {
@@ -124,6 +125,7 @@ class _DonateScreenState extends State<DonateScreen> {
                 // Play and Apple both expect the privacy policy and terms to be
                 // reachable from inside the app, not only from the store listing.
                 const _LegalLinks(),
+                VersionFooter(api: widget.api),
               ],
             ),
           ),

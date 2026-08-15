@@ -358,6 +358,22 @@ class Api {
     }
   }
 
+  /// Asks the server which app versions it still supports.
+  ///
+  /// Returns null on **any** failure - endpoint missing, server down, offline,
+  /// malformed JSON. That is deliberate and is the most important line in this
+  /// method: the caller uses the result to decide whether to lock the user out,
+  /// so a check that failed closed would brick every install the moment the Pi
+  /// hiccupped, with no way to ship a fix except through the store.
+  Future<AppRelease?> release() async {
+    if (_demo) return null;
+    try {
+      return AppRelease.fromJson(await _getJson('/app-version'));
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String> randomPhrase({String lang = 'en'}) async {
     if (_demo) {
       _demoPhraseIndex = (_demoPhraseIndex + 1) % _demoPhrases.length;
