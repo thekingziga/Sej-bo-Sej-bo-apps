@@ -6,7 +6,7 @@ publish_to: 'none'
 # The +N build number is independent and must only ever increase - Play
 # permanently burns each versionCode, so it does NOT reset when the semver
 # part changes.
-version: 1.9.0+11
+version: 1.10.0+12
 
 environment:
   sdk: ^3.12.2
@@ -27,6 +27,7 @@ dependencies:
   http_parser: ^4.1.2
   image_cropper: ^12.2.1
   package_info_plus: ^10.2.1
+  in_app_update: ^5.0.0
 
 dev_dependencies:
   flutter_test:

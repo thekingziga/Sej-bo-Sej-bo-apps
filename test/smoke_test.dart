@@ -13,6 +13,7 @@ import 'package:sejbosejbo/models.dart';
 import 'package:sejbosejbo/prefs.dart';
 import 'package:sejbosejbo/screens/detail.dart';
 import 'package:sejbosejbo/theme.dart';
+import 'package:sejbosejbo/store_update.dart';
 import 'package:sejbosejbo/update_gate.dart';
 import 'package:sejbosejbo/version.dart';
 import 'package:sejbosejbo/widgets.dart';
@@ -208,7 +209,11 @@ void main() {
         onChange: (_) {},
         child: MaterialApp(
           theme: Brutal.theme(),
-          home: UpdateGate(api: api, child: const Scaffold(body: Text('THE APP'))),
+          home: UpdateGate(
+            api: api,
+            store: const NoStoreUpdates(),
+            child: const Scaffold(body: Text('THE APP')),
+          ),
         ),
       ),
     );
@@ -238,7 +243,11 @@ void main() {
         onChange: (_) {},
         child: MaterialApp(
           theme: Brutal.theme(),
-          home: UpdateGate(api: api, child: const Scaffold(body: Text('THE APP'))),
+          home: UpdateGate(
+            api: api,
+            store: const NoStoreUpdates(),
+            child: const Scaffold(body: Text('THE APP')),
+          ),
         ),
       ),
     );
@@ -250,6 +259,114 @@ void main() {
     expect(find.text('Voting moved.'), findsOneWidget, reason: "server's reason is shown");
     expect(find.text('THE APP'), findsNothing, reason: 'the app must be unreachable');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Play having an update ready runs the flow without being asked',
+      (tester) async {
+    AppVersion.cachedForTest = const AppVersion(version: '1.10.0', build: '12');
+    addTearDown(() => AppVersion.cachedForTest = null);
+
+    final store = _FakeStore(ready: true);
+    final api = Api(
+      baseUrl: 'https://example.test',
+      useDemoData: false,
+      // Server has no opinion: Play alone is enough to force the update.
+      client: MockClient((_) async => http.Response('', 404)),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.en,
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: UpdateGate(
+            api: api,
+            store: store,
+            child: const Scaffold(body: Text('THE APP')),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(store.immediateStarted, 1,
+        reason: "Play's own flow should open without the user tapping first");
+    // accepts: true, so the update went through and the app is usable again.
+    // (On a real device Play restarts the app at this point.)
+    expect(find.text('THE APP'), findsOneWidget);
+  });
+
+  testWidgets('declining the Play update keeps the wall up, with a retry', (tester) async {
+    AppVersion.cachedForTest = const AppVersion(version: '1.10.0', build: '12');
+    addTearDown(() => AppVersion.cachedForTest = null);
+
+    // accepts: false = the user backs out of Play's dialog.
+    final store = _FakeStore(ready: true, accepts: false);
+    final api = Api(
+      baseUrl: 'https://example.test',
+      useDemoData: false,
+      client: MockClient((_) async => http.Response('', 404)),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.en,
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: UpdateGate(
+            api: api,
+            store: store,
+            child: const Scaffold(body: Text('THE APP')),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('THE APP'), findsNothing, reason: 'backing out must not get you in');
+
+    await tester.tap(find.text('UPDATE NOW'));
+    await tester.pump();
+    expect(store.immediateStarted, 2, reason: 'the button re-runs the flow');
+  });
+
+  testWidgets('no store update and no server opinion means nothing changes', (tester) async {
+    AppVersion.cachedForTest = const AppVersion(version: '1.10.0', build: '12');
+    addTearDown(() => AppVersion.cachedForTest = null);
+
+    final store = _FakeStore(ready: false);
+    final api = Api(
+      baseUrl: 'https://example.test',
+      useDemoData: false,
+      client: MockClient((_) async => http.Response('', 404)),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.en,
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: UpdateGate(
+            api: api,
+            store: store,
+            child: const Scaffold(body: Text('THE APP')),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('THE APP'), findsOneWidget);
+    expect(store.immediateStarted, 0);
   });
 
   testWidgets('hall of fame is ordered by score, highest first', (tester) async {
@@ -1063,4 +1180,26 @@ void _reportTests() {
       );
     });
   });
+}
+
+
+/// Stands in for Google Play, which cannot run in a widget test.
+class _FakeStore implements StoreUpdates {
+  _FakeStore({required this.ready, this.accepts = true});
+
+  final bool ready;
+
+  /// Whether the user goes through with Play's dialog.
+  final bool accepts;
+
+  int immediateStarted = 0;
+
+  @override
+  Future<bool> isUpdateReady() async => ready;
+
+  @override
+  Future<bool> startImmediateUpdate() async {
+    immediateStarted++;
+    return accepts;
+  }
 }

@@ -4,24 +4,37 @@ import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
 import 'l10n.dart';
 import 'models.dart';
+import 'store_update.dart';
 import 'theme.dart';
 import 'version.dart';
 
-/// Blocks the app when the server says this build is too old to run.
+/// Forces an update when there is one to force. Two independent triggers:
 ///
-/// The gate is **server-driven**, not driven by "is there a newer build in the
-/// store". That distinction matters: Play rolls updates out gradually, so for
-/// hours after an upload there are users who cannot get the new version yet.
-/// Blocking on "newer exists" would lock those people out of an app they have
-/// no way to fix. Blocking on an explicit `min_version` that you raise when you
-/// mean it does what you actually want, and only when you want it.
+/// 1. **Google Play has an update ready for this device.** This is the usual
+///    case and the one that behaves like every big game: the moment the update
+///    reaches you, the app stops and makes you take it. Play's answer already
+///    accounts for staged rollout and device compatibility, so nobody is ever
+///    blocked by an update they cannot actually install.
+/// 2. **The server declares this build too old** (`min_version`). The
+///    compatibility floor, for when an API change genuinely breaks old builds.
+///    Works on every platform, including the ones with no store.
 ///
-/// It also fails open on every error - see [Api.release].
+/// Both fail open. Play throwing (sideloaded build, no Play Services, offline)
+/// and the server saying nothing both mean "carry on" - a gate that failed
+/// closed would brick every install at once, fixable only through the store.
 class UpdateGate extends StatefulWidget {
-  const UpdateGate({super.key, required this.api, required this.child});
+  const UpdateGate({
+    super.key,
+    required this.api,
+    required this.child,
+    this.store = const PlayStoreUpdates(),
+  });
 
   final Api api;
   final Widget child;
+
+  /// Swappable so the gate is testable without Play.
+  final StoreUpdates store;
 
   @override
   State<UpdateGate> createState() => _UpdateGateState();
@@ -30,6 +43,8 @@ class UpdateGate extends StatefulWidget {
 class _UpdateGateState extends State<UpdateGate> {
   AppRelease? _release;
   AppVersion? _mine;
+  bool _storeUpdateReady = false;
+  bool _checked = false;
 
   @override
   void initState() {
@@ -40,34 +55,67 @@ class _UpdateGateState extends State<UpdateGate> {
   Future<void> _check() async {
     final mine = await AppVersion.load();
     final release = await widget.api.release();
+    final storeReady = await widget.store.isUpdateReady();
     if (!mounted) return;
     setState(() {
       _mine = mine;
       _release = release;
+      _storeUpdateReady = storeReady;
+      _checked = true;
     });
+
+    // Hand straight over to Play's own full-screen flow, rather than making
+    // the user tap through our screen first. Ours is the fallback for when
+    // they back out of Play's.
+    if (storeReady) await _runStoreUpdate();
+  }
+
+  Future<void> _runStoreUpdate() async {
+    final done = await widget.store.startImmediateUpdate();
+    // On success Play restarts the app, so reaching here generally means the
+    // user declined - keep the wall up and let them try again.
+    if (done && mounted) setState(() => _storeUpdateReady = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final mine = _mine;
-    final release = _release;
 
-    // Until both are known, and whenever the server says nothing, the app runs
-    // exactly as before. No spinner, no gate, no delay on launch.
-    if (mine == null || release == null || !release.blocks(mine.version)) {
-      return widget.child;
+    // Nothing renders differently until the checks land: no spinner, no
+    // launch delay, no flash of a gate that then disappears.
+    if (!_checked || mine == null) return widget.child;
+
+    if (_storeUpdateReady) {
+      return UpdateRequiredScreen(
+        release: _release,
+        current: mine,
+        onUpdate: _runStoreUpdate,
+      );
     }
-    return UpdateRequiredScreen(release: release, current: mine);
+    if (_release?.blocks(mine.version) == true) {
+      return UpdateRequiredScreen(release: _release, current: mine);
+    }
+    return widget.child;
   }
 }
 
 /// The wall. Deliberately a dead end - no back, no dismiss - because a gate the
 /// user can tap past is not a gate.
 class UpdateRequiredScreen extends StatelessWidget {
-  const UpdateRequiredScreen({super.key, required this.release, required this.current});
+  const UpdateRequiredScreen({
+    super.key,
+    required this.release,
+    required this.current,
+    this.onUpdate,
+  });
 
-  final AppRelease release;
+  /// Null when the server has no opinion - the Play path does not need it.
+  final AppRelease? release;
   final AppVersion current;
+
+  /// Runs Play's in-app update. Falls back to opening the store listing when
+  /// absent, which is the only option on a platform without in-app updates.
+  final VoidCallback? onUpdate;
 
   static Future<void> openStore() async {
     // market: opens the Play app directly. It fails on a device without Play
@@ -115,8 +163,8 @@ class UpdateRequiredScreen extends StatelessWidget {
                         const SizedBox(height: 12),
                         Text(
                           // The server can explain why; otherwise a generic line.
-                          release.message?.trim().isNotEmpty == true
-                              ? release.message!.trim()
+                          release?.message?.trim().isNotEmpty == true
+                              ? release!.message!.trim()
                               : t['updateBody'],
                           textAlign: TextAlign.center,
                           style: Brutal.body.copyWith(fontSize: 16),
@@ -128,13 +176,15 @@ class UpdateRequiredScreen extends StatelessWidget {
                 const SizedBox(height: 22),
                 BrutalButton(
                   color: Brutal.lime,
-                  onPressed: openStore,
+                  onPressed: onUpdate ?? openStore,
                   padding: const EdgeInsets.symmetric(vertical: 18),
                   child: Text(t['updateButton']),
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  '${current.display}  ->  v${release.minVersion}+',
+                  release?.minVersion != null
+                      ? '${current.display}  ->  v${release!.minVersion}+'
+                      : current.display,
                   textAlign: TextAlign.center,
                   style: Brutal.body.copyWith(
                     fontSize: 13,

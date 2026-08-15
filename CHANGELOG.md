@@ -9,6 +9,44 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.10.0+12
+
+Forced updates now trigger off Google Play itself, which is what was actually
+wanted.
+
+**Added**
+- **Play in-app updates.** On launch the app asks Play whether an update is
+  ready *for this device*. If so it hands straight to Play's own full-screen
+  update flow - no tapping through our screen first - and there is no way into
+  the app until it is done. Backing out of Play's dialog leaves our wall up
+  with an UPDATE NOW button that re-runs it.
+
+**Why this is the right trigger**
+- Asking Play is strictly better than comparing against "the newest version in
+  the store". Play's answer already accounts for staged rollout, device
+  compatibility and country targeting, so a user is only ever blocked by an
+  update they can genuinely install right now. That was the objection to
+  forcing on version-exists, and it does not apply here.
+- The server's `min_version` gate from 1.9.0 stays, for the different job:
+  a compatibility floor when an API change breaks old builds, on every platform
+  including the ones with no store. Either trigger can wall the app; neither
+  needs the other.
+- Still fails open on everything. A sideloaded build, a device without Play
+  Services, Play rate-limiting the check, or no network all mean "carry on".
+
+**Note for testing**
+- In-app updates only work for a build **installed by Play**. Sideloading this
+  APK will never show the prompt, however old it is - test it from the internal
+  testing track with a lower version installed.
+
+```
+The app now checks Google Play for updates on launch and walks you through
+installing one when it is available, so you are never left on a version that
+no longer works properly.
+```
+
+---
+
 ## 1.9.0+11
 
 Version numbers on screen, and a kill switch for old builds.
