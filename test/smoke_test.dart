@@ -745,6 +745,126 @@ void main() {
     });
   });
 
+  group('donation verification', () {
+    Api build(int status, [String body = '{}', Map<String, String>? headers]) => Api(
+          baseUrl: 'https://example.test',
+          useDemoData: false,
+          client: MockClient((_) async => http.Response(body, status, headers: headers ?? const {})),
+        );
+
+    test('posts the documented shape to the right provider path', () async {
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('', 200);
+        }),
+      );
+
+      await api.verifyStorePurchase(
+        platform: 'google',
+        productId: 'fyi.sejbosejbo.tip.medium',
+        token: 'tok_123',
+      );
+      expect(sent.url.path, '/api/v1/donations/google/verify');
+      expect(jsonDecode(sent.body),
+          {'product_id': 'fyi.sejbosejbo.tip.medium', 'token': 'tok_123'});
+    });
+
+    test('200 with an empty body is success, not a parse error', () async {
+      // The server returns 200 and nothing else; treating that as malformed
+      // would leave a verified tip looking like a failure.
+      await build(200, '').verifyStorePurchase(
+          platform: 'google', productId: 'x', token: 't');
+    });
+
+    test('400 throws so the caller does NOT finish the transaction', () async {
+      await expectLater(
+        () => build(400, '{"error":"Receipt did not check out."}')
+            .verifyStorePurchase(platform: 'google', productId: 'x', token: 't'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.statusCode, 'status', 400)
+            .having((e) => e.message, 'message', contains('did not check out'))),
+      );
+    });
+
+    test('503 is flagged as "not configured yet", not a user-facing failure', () async {
+      await expectLater(
+        () => build(503).verifyStorePurchase(platform: 'apple', productId: 'x', token: 't'),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 503)),
+      );
+    });
+
+    test('429 carries the retry delay', () async {
+      await expectLater(
+        () => build(429, '{"error":"slow down"}', {'retry-after': '30'})
+            .verifyStorePurchase(platform: 'google', productId: 'x', token: 't'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 30))),
+      );
+    });
+
+    test('a network failure throws rather than silently passing', () async {
+      // The old code swallowed everything, so an unreachable server looked
+      // identical to a verified tip - and the purchase was acknowledged anyway.
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((_) async => throw Exception('offline')),
+      );
+      await expectLater(
+        () => api.verifyStorePurchase(platform: 'google', productId: 'x', token: 't'),
+        throwsA(isA<ApiException>()),
+      );
+    });
+
+    test('stripe session returns the checkout URL', () async {
+      final api = build(200, '{"url":"https://checkout.stripe.com/c/pay/cs_test_1"}');
+      expect(await api.createStripeCheckout(tierId: 'medium'),
+          'https://checkout.stripe.com/c/pay/cs_test_1');
+    });
+
+    test('stripe 503 is distinguishable, so the UI can hide tipping', () async {
+      await expectLater(
+        () => build(503, '{"error":"Stripe is not configured."}')
+            .createStripeCheckout(tierId: 'medium'),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 503)),
+      );
+    });
+
+    test('a 200 with no url is a failure, not an empty launch', () async {
+      await expectLater(
+        () => build(200, '{}').createStripeCheckout(tierId: 'small'),
+        throwsA(isA<ApiException>()),
+      );
+    });
+  });
+
+  group('donation tiers match the store', () {
+    test('product ids are exactly what Play and App Store Connect expect', () {
+      expect(kDonationTiers.map((t) => t.storeProductId), [
+        'fyi.sejbosejbo.tip.small',
+        'fyi.sejbosejbo.tip.medium',
+        'fyi.sejbosejbo.tip.large',
+      ]);
+    });
+
+    test('tier ids are what the Stripe endpoint expects', () {
+      expect(kDonationTiers.map((t) => t.id), ['small', 'medium', 'large']);
+    });
+
+    test('handedOff is not success - the browser may still be abandoned', () {
+      final tier = kDonationTiers.first;
+      expect(DonationResult.handedOff(tier).ok, isFalse);
+      expect(DonationResult.handedOff(tier).pending, isTrue);
+      expect(DonationResult.success(tier).ok, isTrue);
+      expect(const DonationResult.notAvailable('503').unavailable, isTrue);
+      expect(const DonationResult.notAvailable('503').ok, isFalse);
+    });
+  });
+
   group('donation tiers', () {
     test('prices are whole euros in minor units', () {
       expect(kDonationTiers.map((t) => t.amountMinor), [200, 500, 1500]);

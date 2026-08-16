@@ -115,6 +115,11 @@ class Strings {
     'retryIn': 'Too fast. Try again in {s}s.',
     'reportCommentTitle': 'Report this comment',
     'reportComment': 'Report comment',
+    'donateInBrowser': 'Finish the payment in your browser. Nothing is charged '
+        'until you do, and you can still back out.',
+    'donateSoonTitle': 'TIPPING IS NOT LIVE YET',
+    'donateSoonBody': 'The payment side is still being set up on this platform. '
+        'Nothing is wrong with your app - check back soon.',
     'versionApp': 'App',
     'versionSite': 'Website',
     'updateTitle': 'UPDATE REQUIRED',
@@ -226,6 +231,11 @@ class Strings {
     'retryIn': 'Prehitro. Poskusi znova cez {s} s.',
     'reportCommentTitle': 'Prijavi ta komentar',
     'reportComment': 'Prijavi komentar',
+    'donateInBrowser': 'Placilo dokoncaj v brskalniku. Dokler tega ne storiš, '
+        'ni nic obracunano in lahko še vedno odstopiš.',
+    'donateSoonTitle': 'NAPITNINE ŠE NISO ŽIVE',
+    'donateSoonBody': 'Placilni del se na tej platformi še ureja. Z aplikacijo '
+        'ni nic narobe - poglej spet kmalu.',
     'versionApp': 'Aplikacija',
     'versionSite': 'Spletna stran',
     'updateTitle': 'POTREBNA POSODOBITEV',

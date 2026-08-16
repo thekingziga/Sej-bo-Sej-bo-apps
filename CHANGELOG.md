@@ -9,6 +9,55 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.11.0+13
+
+Tipping, wired to the live payment endpoints - and a real money bug fixed on
+the way.
+
+**Fixed**
+- **Purchases were being finished before they were verified.** `buyConsumable`
+  ran with `autoConsume: true`, and the plugin consumes inside its own pipeline
+  *before* our listener sees the purchase - so Google was told the transaction
+  was complete before the server had ever checked the receipt. On top of that
+  `verifyStorePurchase` swallowed every error, so an unreachable server looked
+  exactly like a verified tip. Together that meant a forged or failed purchase
+  would have been accepted permanently, and a genuine one could vanish with no
+  record. Now: verify first, finish only on success.
+- **Failed verification leaves the transaction unfinished, deliberately.** A
+  400 receipt is invalid and Google auto-refunds it after three days, which is
+  the right outcome. Anything transient - 429, 5xx, offline, 503 - is replayed
+  on the next launch, so a real tip is not lost to a blip.
+- **Android tips are consumed, not just acknowledged.** Acknowledging alone
+  stops the three-day refund clock but leaves the product owned, so nobody
+  could ever tip the same amount twice.
+
+**Added**
+- **Unfinished purchases are replayed on launch** (`restorePurchases`), for the
+  app being killed between paying and verifying. Safe to repeat: the server
+  ignores duplicate tokens.
+- **503 hides tipping** instead of showing a red error. That is the designed
+  state on Android and iOS until the store credentials are configured, and it
+  is not something the user did.
+- **Stripe no longer claims success.** Handing off to the browser now shows
+  "finish the payment in your browser" - the webhook decides whether money
+  moved, and the user can still close the tab.
+
+**Verified against production**
+- All three tiers create real `cs_live_` Stripe checkout sessions; an unknown
+  tier is a 400; Google and Apple both answer 503 with a readable message. The
+  store purchase flow itself cannot be tested without a license-tester purchase
+  on a Play-installed build - the ordering logic is covered by tests instead.
+  87 tests, up from 75.
+
+```
+Tipping now works on Windows and Linux through your browser.
+
+On Android and iOS the tip screen stays hidden until store payments are
+switched on, rather than showing buttons that cannot work yet.
+```
+
+---
+
 ## 1.10.0+12
 
 Forced updates now trigger off Google Play itself, which is what was actually

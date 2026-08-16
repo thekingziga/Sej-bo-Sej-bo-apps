@@ -27,6 +27,14 @@ class _DonateScreenState extends State<DonateScreen> {
   bool _thanks = false;
   String? _error;
 
+  /// Set when the browser has the payment and we genuinely do not know the
+  /// outcome yet. Distinct from [_thanks], which claims the money arrived.
+  bool _handedOff = false;
+
+  /// The server answered 503 - this provider is not configured yet. Tipping is
+  /// hidden rather than shown as a failure, because it is not one.
+  String? _unavailable;
+
   @override
   void initState() {
     super.initState();
@@ -34,8 +42,15 @@ class _DonateScreenState extends State<DonateScreen> {
       if (!mounted) return;
       setState(() {
         _busyTier = null;
-        if (r.ok) {
+        if (r.unavailable) {
+          _unavailable = r.error;
+          _error = null;
+        } else if (r.ok) {
           _thanks = true;
+          _handedOff = false;
+          _error = null;
+        } else if (r.pending) {
+          _handedOff = true;
           _error = null;
         } else if (r.error != null) {
           _error = r.error;
@@ -64,7 +79,15 @@ class _DonateScreenState extends State<DonateScreen> {
     if (DonationGateway.rail == DonationRail.stripe || result.error != null) {
       setState(() {
         _busyTier = null;
+        if (result.unavailable) {
+          _unavailable = result.error;
+          _error = null;
+          return;
+        }
         if (result.ok) _thanks = true;
+        // Stripe hands off to the browser: the webhook, not the app, decides
+        // whether money moved. Saying "thanks" here would be a guess.
+        _handedOff = result.pending;
         _error = result.error;
       });
     }
@@ -94,6 +117,20 @@ class _DonateScreenState extends State<DonateScreen> {
                   const SizedBox(height: 20),
                 ],
 
+                if (_handedOff) ...[
+                  BrutalBox(
+                    color: Brutal.cyan,
+                    dx: 3,
+                    dy: 3,
+                    padding: const EdgeInsets.all(13),
+                    child: Text(
+                      L10n.of(context)['donateInBrowser'],
+                      style: Brutal.body.copyWith(fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+
                 if (_error != null) ...[
                   BrutalBox(
                     color: Brutal.danger,
@@ -105,22 +142,47 @@ class _DonateScreenState extends State<DonateScreen> {
                   const SizedBox(height: 18),
                 ],
 
-                for (var i = 0; i < kDonationTiers.length; i++) ...[
-                  Entrance(
-                    index: i + 1,
-                    child: _TierCard(
-                      tier: kDonationTiers[i],
-                      accent: Brutal.accentFor(i),
-                      price: widget.donations.priceFor(kDonationTiers[i]),
-                      busy: _busyTier == kDonationTiers[i].id,
-                      onTap: () => _donate(kDonationTiers[i]),
+                // 503 from the server means this payment provider is not
+                // switched on yet. Showing tip buttons that cannot work is
+                // worse than showing none, so they come out entirely.
+                if (_unavailable != null) ...[
+                  BrutalBox(
+                    color: Brutal.paperDeep,
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          L10n.of(context)['donateSoonTitle'],
+                          style: Brutal.label.copyWith(fontSize: 14),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          L10n.of(context)['donateSoonBody'],
+                          style: Brutal.body.copyWith(fontSize: 14),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                ],
+                  const SizedBox(height: 10),
+                ] else ...[
+                  for (var i = 0; i < kDonationTiers.length; i++) ...[
+                    Entrance(
+                      index: i + 1,
+                      child: _TierCard(
+                        tier: kDonationTiers[i],
+                        accent: Brutal.accentFor(i),
+                        price: widget.donations.priceFor(kDonationTiers[i]),
+                        busy: _busyTier == kDonationTiers[i].id,
+                        onTap: () => _donate(kDonationTiers[i]),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
 
-                const SizedBox(height: 10),
-                _RailNote(rail: rail),
+                  const SizedBox(height: 10),
+                  _RailNote(rail: rail),
+                ],
                 const SizedBox(height: 26),
                 // Play and Apple both expect the privacy policy and terms to be
                 // reachable from inside the app, not only from the store listing.

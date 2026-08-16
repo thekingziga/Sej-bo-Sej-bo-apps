@@ -470,8 +470,20 @@ class Api {
     } catch (_) {
       throw ApiException('Could not start checkout. Check your connection.');
     }
+    if (res.statusCode == 429) {
+      throw ApiException.rateLimited(res, 'Too many attempts. Try again shortly.');
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException('Checkout failed (${res.statusCode}).', statusCode: res.statusCode);
+      // 503 is the designed state until Stripe keys are configured, not a
+      // failure the user caused - the UI hides tipping rather than blaming them.
+      String msg = res.statusCode == 503
+          ? 'Tipping is not switched on yet.'
+          : 'Checkout failed (${res.statusCode}).';
+      try {
+        final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        if (j['error'] is String) msg = j['error'] as String;
+      } catch (_) {}
+      throw ApiException(msg, statusCode: res.statusCode);
     }
     final j = jsonDecode(res.body) as Map<String, dynamic>;
     final url = j['url'] as String?;
@@ -481,23 +493,53 @@ class Api {
 
   /// Hands a store receipt to the server so the donation can be recorded and,
   /// critically, verified against Apple/Google rather than trusted from the client.
+  ///
+  /// Throws on failure, and the distinction between the failures matters more
+  /// here than anywhere else in this file, because the caller decides whether
+  /// to finish the store transaction based on it:
+  ///
+  /// - `400` - the receipt genuinely did not check out. Permanent. The caller
+  ///   must NOT finish the transaction; leaving it unfinished is what lets the
+  ///   store refund a purchase that was never valid.
+  /// - `503` - this provider is not configured on the server yet. Also do not
+  ///   finish: the money is real even though we cannot record it.
+  /// - anything else (429, 5xx, offline) - transient. Do not finish either, so
+  ///   the plugin replays it on the next launch and we get another go.
+  ///
+  /// The server ignores duplicate tokens, so replaying is safe and cannot
+  /// double-count.
   Future<void> verifyStorePurchase({
     required String platform,
     required String productId,
     required String token,
   }) async {
     if (_demo) return;
+
+    late http.Response res;
     try {
-      await _client
+      res = await _client
           .post(
             _uri('/donations/$platform/verify'),
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
             body: jsonEncode({'product_id': productId, 'token': token}),
           )
           .timeout(_timeout);
     } catch (_) {
-      // Non-fatal: the store already took the money and the plugin will replay
-      // unverified purchases on next launch.
+      throw ApiException('Could not reach the server to confirm your tip.');
+    }
+
+    if (res.statusCode == 429) {
+      throw ApiException.rateLimited(res, 'Too many attempts. Try again shortly.');
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      String msg = res.statusCode == 503
+          ? 'Tipping is not switched on yet on this platform.'
+          : 'Could not confirm your tip (${res.statusCode}).';
+      try {
+        final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        if (j['error'] is String) msg = j['error'] as String;
+      } catch (_) {}
+      throw ApiException(msg, statusCode: res.statusCode);
     }
   }
 

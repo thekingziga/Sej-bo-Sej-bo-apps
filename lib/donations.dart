@@ -3,6 +3,8 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
+import 'package:in_app_purchase_platform_interface/in_app_purchase_platform_interface.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
@@ -19,15 +21,47 @@ import 'models.dart';
 enum DonationRail { store, stripe }
 
 class DonationResult {
-  const DonationResult.success(this.tier) : cancelled = false, error = null;
-  const DonationResult.cancelled() : tier = null, cancelled = true, error = null;
-  const DonationResult.failure(this.error) : tier = null, cancelled = false;
+  const DonationResult.success(this.tier)
+    : cancelled = false,
+      error = null,
+      pending = false,
+      unavailable = false;
+  const DonationResult.cancelled()
+    : tier = null,
+      cancelled = true,
+      error = null,
+      pending = false,
+      unavailable = false;
+  const DonationResult.failure(this.error)
+    : tier = null,
+      cancelled = false,
+      pending = false,
+      unavailable = false;
+
+  /// Handed off to the browser. The payment has not happened yet and may never
+  /// happen - claiming success here would be a lie, since the user can still
+  /// close the tab.
+  const DonationResult.handedOff(this.tier)
+    : cancelled = false,
+      error = null,
+      pending = true,
+      unavailable = false;
+
+  /// The server has not been configured for this payment provider (503). Not
+  /// the user's fault and not worth an angry red box - the UI hides tipping.
+  const DonationResult.notAvailable(this.error)
+    : tier = null,
+      cancelled = false,
+      pending = false,
+      unavailable = true;
 
   final DonationTier? tier;
   final bool cancelled;
   final String? error;
+  final bool pending;
+  final bool unavailable;
 
-  bool get ok => tier != null;
+  bool get ok => tier != null && !pending;
 }
 
 class DonationGateway {
@@ -87,12 +121,17 @@ class DonationGateway {
     } catch (_) {
       _products = const [];
     }
+
+    // After the listener is attached, so anything it turns up is handled.
+    await _replayUnfinished();
   }
 
   Future<void> _onPurchases(List<PurchaseDetails> purchases) async {
     for (final p in purchases) {
       switch (p.status) {
         case PurchaseStatus.pending:
+          // Nothing to do - a slow card or a parent-approval flow. The store
+          // will deliver it again when it resolves.
           break;
         case PurchaseStatus.canceled:
           _controller.add(const DonationResult.cancelled());
@@ -100,21 +139,89 @@ class DonationGateway {
           _controller.add(DonationResult.failure(p.error?.message ?? 'Purchase failed.'));
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
-          final tier = _tierForProduct(p.productID);
-          // Server-side verification. Never trust the client for money.
-          await _api.verifyStorePurchase(
-            platform: (!kIsWeb && Platform.isAndroid) ? 'google' : 'apple',
-            productId: p.productID,
-            token: p.verificationData.serverVerificationData,
-          );
-          if (tier != null) _controller.add(DonationResult.success(tier));
+          await _verifyThenFinish(p);
       }
+    }
+  }
 
-      // Tips are consumables: always complete, or the store will replay them
-      // on every launch and block future purchases.
-      if (p.pendingCompletePurchase) {
-        await _iap.completePurchase(p);
+  /// Verify with our server, and only then tell the store we are done.
+  ///
+  /// The order is the whole point. Finishing a transaction is irreversible and
+  /// tells the store the user got what they paid for, so it has to come after
+  /// the receipt has actually been checked - otherwise a forged or failed
+  /// purchase is accepted permanently.
+  ///
+  /// When verification fails the transaction is deliberately left unfinished:
+  ///
+  /// - a `400` receipt is invalid, and leaving it unfinished lets Google
+  ///   auto-refund it after three days, which is the correct outcome;
+  /// - a transient failure (429, 5xx, offline, 503) gets replayed on the next
+  ///   launch by [_replayUnfinished], so a real tip is not lost to a blip.
+  ///
+  /// The risk this trades against is a genuine tip sitting unverified for more
+  /// than three days of server downtime, which Google would then refund. That
+  /// is strictly better than acknowledging money we never recorded.
+  Future<void> _verifyThenFinish(PurchaseDetails p) async {
+    final tier = _tierForProduct(p.productID);
+    try {
+      await _api.verifyStorePurchase(
+        platform: (!kIsWeb && Platform.isAndroid) ? 'google' : 'apple',
+        productId: p.productID,
+        token: p.verificationData.serverVerificationData,
+      );
+    } on ApiException catch (e) {
+      if (e.statusCode == 503) {
+        _controller.add(DonationResult.notAvailable(e.message));
+      } else {
+        _controller.add(DonationResult.failure(e.message));
       }
+      return; // Unfinished on purpose. See above.
+    } catch (e) {
+      _controller.add(DonationResult.failure('Could not confirm your tip: $e'));
+      return;
+    }
+
+    await _finish(p);
+    if (tier != null) _controller.add(DonationResult.success(tier));
+  }
+
+  /// Tells the store the transaction is done.
+  ///
+  /// On Android a tip has to be **consumed**, not merely acknowledged:
+  /// acknowledging satisfies the three-day refund rule but leaves the product
+  /// owned, so the user could never tip the same amount twice. Consuming does
+  /// both. On Apple platforms finishing the transaction is all there is.
+  Future<void> _finish(PurchaseDetails p) async {
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        final addition =
+            InAppPurchasePlatformAddition.instance! as InAppPurchaseAndroidPlatformAddition;
+        await addition.consumePurchase(p);
+      } catch (_) {
+        // Fall through to completePurchase, which at least acknowledges and so
+        // stops the refund clock.
+      }
+    }
+    if (p.pendingCompletePurchase) {
+      try {
+        await _iap.completePurchase(p);
+      } catch (_) {
+        // Already consumed on Android: acknowledging afterwards is rejected,
+        // and harmlessly so.
+      }
+    }
+  }
+
+  /// Picks up anything paid for but never finished - the app killed between
+  /// paying and verifying, or a server outage during the last attempt.
+  ///
+  /// Safe to run on every launch: the server ignores duplicate tokens, so a
+  /// replayed purchase is recorded once and never double-counted.
+  Future<void> _replayUnfinished() async {
+    try {
+      await _iap.restorePurchases();
+    } catch (_) {
+      // Nothing to restore, or the store refused. Not worth surfacing.
     }
   }
 
@@ -143,10 +250,14 @@ class DonationGateway {
     try {
       await _iap.buyConsumable(
         purchaseParam: PurchaseParam(productDetails: product),
-        // Android only; harmless elsewhere. Keeps repeat tipping possible.
-        autoConsume: true,
+        // MUST stay false. With autoConsume the plugin consumes the purchase
+        // inside its own pipeline, before our listener runs - so the store
+        // would be told the transaction is finished before the server had
+        // verified the receipt. _finish() consumes explicitly instead.
+        autoConsume: false,
       );
-      return const DonationResult.cancelled(); // placeholder until stream fires
+      // The sheet is up; the real outcome arrives on [results].
+      return const DonationResult.cancelled();
     } catch (e) {
       return DonationResult.failure('Could not open the store sheet: $e');
     }
@@ -155,10 +266,15 @@ class DonationGateway {
   Future<DonationResult> _donateViaStripe(DonationTier tier) async {
     try {
       final url = await _api.createStripeCheckout(tierId: tier.id);
+      // System browser, never a webview: Stripe blocks some payment methods in
+      // embedded webviews and 3-D Secure often fails there.
       final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
       if (!ok) return const DonationResult.failure('Could not open the browser.');
-      return DonationResult.success(tier);
+      // Handed off, not paid. Stripe tells the server via webhook; there is
+      // nothing to poll and the user can still close the tab.
+      return DonationResult.handedOff(tier);
     } on ApiException catch (e) {
+      if (e.statusCode == 503) return DonationResult.notAvailable(e.message);
       return DonationResult.failure(e.message);
     } catch (e) {
       return DonationResult.failure('Checkout failed: $e');
