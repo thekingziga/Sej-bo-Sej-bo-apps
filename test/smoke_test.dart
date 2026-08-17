@@ -865,6 +865,45 @@ void main() {
     });
   });
 
+  group('a tier the store does not offer', () {
+    test('donate() fails politely instead of throwing', () async {
+      // Regression guard. This used to be firstWhere(orElse: throw StateError),
+      // outside the try, so tapping a tier Play had not returned crashed
+      // instead of showing a message. It happened for real: Play returned one
+      // of the three products and the other two were still unpriced.
+      final gateway = DonationGateway(
+        Api(baseUrl: 'https://example.test', useDemoData: false),
+      );
+      addTearDown(gateway.dispose);
+
+      // No init(), so no products are known - the same state as a tier the
+      // store declined to return.
+      final result = await gateway.donate(kDonationTiers[1]);
+      expect(result.ok, isFalse);
+      expect(result.error, isNotNull);
+    });
+
+    test('availability follows the rail, not a hardcoded assumption', () {
+      final gateway = DonationGateway(
+        Api(baseUrl: 'https://example.test', useDemoData: false),
+      );
+      addTearDown(gateway.dispose);
+
+      for (final t in kDonationTiers) {
+        if (DonationGateway.supportsStoreBilling) {
+          // A store rail with no products loaded: nothing is purchasable, and
+          // that must be visible rather than papered over with our own price.
+          expect(gateway.hasProduct(t), isFalse);
+        } else {
+          // Stripe rail: the tiers are ours, so they are always offerable and
+          // must not be greyed out on desktop.
+          expect(gateway.hasProduct(t), isTrue);
+          expect(gateway.priceFor(t), t.display);
+        }
+      }
+    });
+  });
+
   group('donation tiers', () {
     test('prices are whole euros in minor units', () {
       expect(kDonationTiers.map((t) => t.amountMinor), [200, 500, 1500]);

@@ -172,6 +172,11 @@ class _DonateScreenState extends State<DonateScreen> {
                       child: _TierCard(
                         tier: kDonationTiers[i],
                         accent: Brutal.accentFor(i),
+                        // A tier the store has not returned cannot be charged,
+                        // so it shows a dash and does not respond to taps -
+                        // rather than advertising our hardcoded euro amount and
+                        // then failing when the store has no such product.
+                        available: widget.donations.hasProduct(kDonationTiers[i]),
                         price: widget.donations.priceFor(kDonationTiers[i]),
                         busy: _busyTier == kDonationTiers[i].id,
                         onTap: () => _donate(kDonationTiers[i]),
@@ -268,6 +273,7 @@ class _TierCard extends StatelessWidget {
     required this.price,
     required this.busy,
     required this.onTap,
+    this.available = true,
   });
 
   final DonationTier tier;
@@ -276,12 +282,16 @@ class _TierCard extends StatelessWidget {
   final bool busy;
   final VoidCallback onTap;
 
+  /// False when the store has no such product - unpriced, inactive, or still
+  /// propagating after being created in the console.
+  final bool available;
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: busy ? null : onTap,
+      onTap: busy || !available ? null : onTap,
       child: BrutalBox(
-        color: accent,
+        color: available ? accent : Brutal.paperDeep,
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
@@ -312,7 +322,8 @@ class _TierCard extends StatelessWidget {
                       height: 17,
                       child: CircularProgressIndicator(strokeWidth: 3, color: Brutal.ink),
                     )
-                  : Text(price, style: Brutal.display.copyWith(fontSize: 19)),
+                  : Text(available ? price : '—',
+                      style: Brutal.display.copyWith(fontSize: 19)),
             ),
           ],
         ),

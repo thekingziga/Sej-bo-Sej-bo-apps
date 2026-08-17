@@ -85,14 +85,28 @@ class DonationGateway {
 
   static DonationRail get rail => supportsStoreBilling ? DonationRail.store : DonationRail.stripe;
 
-  /// Store-reported localised price, e.g. "€4,99". Falls back to our own label
-  /// when the store has not been queried or the product is not configured yet.
-  String priceFor(DonationTier tier) {
+  /// The store's own record for a tier, or null when it has not returned one.
+  ///
+  /// Null is normal and not an error: the product may be unpriced, inactive, or
+  /// still propagating after being created in Play Console.
+  ProductDetails? productFor(DonationTier tier) {
     for (final p in _products) {
-      if (p.id == tier.storeProductId) return p.price;
+      if (p.id == tier.storeProductId) return p;
     }
-    return tier.display;
+    return null;
   }
+
+  /// True when the store can actually sell this tier.
+  bool hasProduct(DonationTier tier) => !supportsStoreBilling || productFor(tier) != null;
+
+  /// Store-reported localised price, e.g. "€4,99".
+  ///
+  /// Falls back to our own label only where there is no store to ask - on the
+  /// Stripe rail. On a store rail an unknown price means the tier is not
+  /// purchasable, and showing our hardcoded number there would advertise a
+  /// price we cannot honour: exactly what happened when Play returned only one
+  /// of the three products and the other two displayed stale euro amounts.
+  String priceFor(DonationTier tier) => productFor(tier)?.price ?? tier.display;
 
   bool get storeReady => _available && _products.isNotEmpty;
 
@@ -243,10 +257,16 @@ class DonationGateway {
         'Store products are not configured yet. See docs/DONATIONS.md.',
       );
     }
-    final product = _products.firstWhere(
-      (p) => p.id == tier.storeProductId,
-      orElse: () => throw StateError('missing product'),
-    );
+    // Not `firstWhere(orElse: throw)`: a tier the store has not returned is an
+    // ordinary situation - the product is unpriced, inactive, or still
+    // propagating - and it used to throw a StateError out of an un-awaited
+    // path, which surfaced as a crash rather than a message.
+    final product = productFor(tier);
+    if (product == null) {
+      return const DonationResult.failure(
+        'That tip is not available from the store right now.',
+      );
+    }
     try {
       await _iap.buyConsumable(
         purchaseParam: PurchaseParam(productDetails: product),

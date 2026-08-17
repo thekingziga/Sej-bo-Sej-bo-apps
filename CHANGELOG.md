@@ -9,6 +9,28 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.11.1+14
+
+**Fixed**
+- **A tip tier the store has not returned no longer crashes the app.** Looking
+  the product up used `firstWhere(orElse: () => throw StateError(...))`, outside
+  the try block, so tapping such a tier threw out of an un-awaited path instead
+  of showing a message. Hit for real: Play returned one of the three products
+  and the other two were still unpriced, so two of the three buttons were live
+  grenades.
+- **Tiers the store cannot sell no longer show a price.** `priceFor` fell back
+  to our own hardcoded €2/€5/€15 whenever Play did not return a product, so the
+  screen advertised amounts that could not be charged - and made a
+  half-configured console look like a working one. Unavailable tiers now show a
+  dash, greyed and inert, while the Stripe rail is unaffected since its tiers
+  are ours to price.
+
+```
+Fixes a crash when tapping a tip amount the store had not finished setting up.
+```
+
+---
+
 ## 1.11.0+13
 
 Tipping, wired to the live payment endpoints - and a real money bug fixed on
