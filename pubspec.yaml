@@ -6,7 +6,7 @@ publish_to: 'none'
 # The +N build number is independent and must only ever increase - Play
 # permanently burns each versionCode, so it does NOT reset when the semver
 # part changes.
-version: 1.11.1+14
+version: 1.11.2+15
 
 environment:
   sdk: ^3.12.2

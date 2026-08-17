@@ -75,6 +75,10 @@ class Strings {
     'railStore': 'Handled by the App Store / Google Play. They take their cut '
         'before it reaches the Pi — that is their rule, not ours.',
     'railStripe': 'Handled by Stripe in your browser. Card details never touch this app.',
+    'priceNote': 'The odd amounts are Google’s doing: it adds your country’s tax and '
+        'then rounds to a number it finds pleasing. €2 becomes €2.39 here and €2.49 '
+        'in Portugal. Whatever the button says is the whole of it — nothing gets '
+        'added at the end.',
     'officially': 'THIS IS OFFICIALLY\nSEJBOSEJBO.',
     'featured': 'featured',
     'pinned': 'pinned',
@@ -169,7 +173,7 @@ class Strings {
     'paste': 'PRILEPI',
     'edit': 'UREDI',
     'editPhoto': 'Obreži / zavrti',
-    'editFailed': 'Urejevalnika ni bilo mogoce odpreti.',
+    'editFailed': 'Urejevalnika ni bilo mogoče odpreti.',
     'change': 'ZAMENJAJ',
     'remove': 'ODSTRANI',
     'labelTitle': 'Naslov',
@@ -191,6 +195,9 @@ class Strings {
         'pride do Pi-ja — to je njuno pravilo, ne naše.',
     'railStripe': 'Ureja Stripe v tvojem brskalniku. Podatki kartice nikoli ne '
         'pridejo v to aplikacijo.',
+    'priceNote': 'Čudni zneski so Googlovi: doda davek tvoje države in nato zaokroži '
+        'na številko, ki mu je všeč. Iz 2 € nastane 2,39 € pri nas in 2,49 € na '
+        'Portugalskem. Kar piše na gumbu, to je vse — na koncu se ne doda nič.',
     'officially': 'TO JE URADNO\nSEJBOSEJBO.',
     'featured': 'izpostavljeno',
     'pinned': 'pripeto',
@@ -203,17 +210,17 @@ class Strings {
     'justNow': 'pravkar',
     'report': 'PRIJAVI',
     'reportTitle': 'Prijavi ta Sejbosejbo',
-    'reportSub': 'Povej, kaj je narobe. Objavo bo pregledal clovek.',
+    'reportSub': 'Povej, kaj je narobe. Objavo bo pregledal človek.',
     'reasonSpam': 'Neželena vsebina',
     'reasonInappropriate': 'Neprimerna vsebina',
     'reasonHarassment': 'Nadlegovanje ali ustrahovanje',
     'reasonCopyright': 'Avtorske pravice / to je moja vsebina',
     'reasonOther': 'Nekaj drugega',
     'reportDetails': 'Še kaj? (neobvezno)',
-    'reportDetailsHint': 'Dodaj kontekst, ce pomaga.',
+    'reportDetailsHint': 'Dodaj kontekst, če pomaga.',
     'reportSend': 'POŠLJI PRIJAVO',
     'reportCancel': 'PREKLICI',
-    'reportThanks': 'Prijava poslana. Pregledal jo bo clovek.',
+    'reportThanks': 'Prijava poslana. Pregledal jo bo človek.',
     'legalPrivacy': 'Politika zasebnosti',
     'legalTerms': 'Pogoji uporabe',
     'legalWebsite': 'Odpri spletno stran',
@@ -222,28 +229,28 @@ class Strings {
     'commentHint': 'Povej kaj...',
     'commentSend': 'OBJAVI',
     'commentsMore': 'POKAŽI ŠE',
-    'commentsFailed': 'Komentarjev ni bilo mogoce naložiti.',
+    'commentsFailed': 'Komentarjev ni bilo mogoče naložiti.',
     'commentSent': 'Komentar objavljen.',
     'commentYou': 'TI',
     'commentAnon': 'Anonimno',
     'sortOldest': 'NAJSTAREJŠE',
     'sortBest': 'NAJBOLJŠE',
-    'retryIn': 'Prehitro. Poskusi znova cez {s} s.',
+    'retryIn': 'Prehitro. Poskusi znova čez {s} s.',
     'reportCommentTitle': 'Prijavi ta komentar',
     'reportComment': 'Prijavi komentar',
-    'donateInBrowser': 'Placilo dokoncaj v brskalniku. Dokler tega ne storiš, '
-        'ni nic obracunano in lahko še vedno odstopiš.',
+    'donateInBrowser': 'Plačilo dokončaj v brskalniku. Dokler tega ne storiš, '
+        'ni nič obračunano in lahko še vedno odstopiš.',
     'donateSoonTitle': 'NAPITNINE ŠE NISO ŽIVE',
-    'donateSoonBody': 'Placilni del se na tej platformi še ureja. Z aplikacijo '
-        'ni nic narobe - poglej spet kmalu.',
+    'donateSoonBody': 'Plačilni del se na tej platformi še ureja. Z aplikacijo '
+        'ni nič narobe - poglej spet kmalu.',
     'versionApp': 'Aplikacija',
     'versionSite': 'Spletna stran',
     'updateTitle': 'POTREBNA POSODOBITEV',
-    'updateBody': 'Ta razlicica Sejbosejba je prestara za spletno stran. '
+    'updateBody': 'Ta različica Sejbosejba je prestara za spletno stran. '
         'Prenesi novo in nadaljuj.',
     'updateButton': 'POSODOBI ZDAJ',
     'unsupportedTitle': 'POTREBUJE NOVEJŠO APLIKACIJO',
-    'unsupportedBody': 'Te vrste objave ta razlicica še ne zna prikazati.',
+    'unsupportedBody': 'Te vrste objave ta različica še ne zna prikazati.',
     'openOnWeb': 'ODPRI NA SPLETNI STRANI',
   };
 

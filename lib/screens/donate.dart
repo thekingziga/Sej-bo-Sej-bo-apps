@@ -187,6 +187,14 @@ class _DonateScreenState extends State<DonateScreen> {
 
                   const SizedBox(height: 10),
                   _RailNote(rail: rail),
+                  // Why the amounts are not round numbers. Play grosses the
+                  // price up by local VAT and then rounds to its own price
+                  // points, so the tiers read 2.39 / 2.49 rather than 2.00 -
+                  // which looks like a bug unless someone says otherwise.
+                  if (rail == DonationRail.store) ...[
+                    const SizedBox(height: 10),
+                    _PriceNote(),
+                  ],
                 ],
                 const SizedBox(height: 26),
                 // Play and Apple both expect the privacy policy and terms to be
@@ -333,6 +341,26 @@ class _TierCard extends StatelessWidget {
 }
 
 /// Tells the user - honestly - where their money actually goes on this platform.
+/// Explains the odd tier prices, in the same quiet grey as the rail note.
+class _PriceNote extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.receipt_long_outlined, size: 15, color: Brutal.ink.withValues(alpha: 0.55)),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Text(
+            L10n.of(context)['priceNote'],
+            style: Brutal.body.copyWith(fontSize: 12, color: Brutal.ink.withValues(alpha: 0.6)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _RailNote extends StatelessWidget {
   const _RailNote({required this.rail});
 

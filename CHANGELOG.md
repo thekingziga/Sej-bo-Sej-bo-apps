@@ -9,6 +9,30 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.11.2+15
+
+**Added**
+- **A line explaining the odd tip amounts.** Play grosses the price up by local
+  VAT and then rounds to its own price points, so a €2 tier reads €2.39 in
+  Slovenia and €2.49 in Portugal. Without a word of explanation that looks like
+  a bug in the app, so the Support tab now says whose doing it is - and that the
+  number on the button is the whole of it, with nothing added at checkout.
+
+**Fixed**
+- **Slovenian spelling.** Several strings I added were missing their diacritics
+  ("mogoce", "clovek", "razlicica", "nic", "cez"). The app's original Slovenian
+  has them, so these were simply typos, and they were shipping to the audience
+  most likely to notice.
+
+```
+The Support tab now explains why tip amounts are not round numbers - local tax
+and Google's rounding, not us.
+
+Fixed some Slovenian spelling.
+```
+
+---
+
 ## 1.11.1+14
 
 **Fixed**
