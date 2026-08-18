@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'donations.dart';
 import 'l10n.dart';
+import 'music.dart';
 import 'prefs.dart';
 import 'push.dart';
 import 'screens/detail.dart';
@@ -31,7 +32,7 @@ class SejbosejboApp extends StatefulWidget {
   State<SejbosejboApp> createState() => _SejbosejboAppState();
 }
 
-class _SejbosejboAppState extends State<SejbosejboApp> {
+class _SejbosejboAppState extends State<SejbosejboApp> with WidgetsBindingObserver {
   // Pass --dart-define=API_BASE_URL=https://sejbosejbo.fyi to leave demo mode.
   late final Api _api = Api(prefs: widget.prefs);
   late final DonationGateway _donations = DonationGateway(_api);
@@ -49,6 +50,9 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
 
   Push get push => _push;
 
+  late final Music _music = Music(widget.prefs);
+  Music get music => _music;
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +60,9 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
     _initDeepLinks();
     _ensureSignedDeviceId();
     _push.start();
+    // Only actually plays if the user turned it on in a previous session.
+    WidgetsBinding.instance.addObserver(this);
+    _music.start();
   }
 
   /// Swaps the locally generated device id for one the server signs, exactly
@@ -106,8 +113,18 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
     await widget.prefs.setLang(l);
   }
 
+  /// Music stops when the app goes to the background and picks up on return.
+  /// Anything else amounts to holding the phone's audio hostage after the user
+  /// has walked away.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _music.handleLifecycle(foreground: state == AppLifecycleState.resumed);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _music.dispose();
     _linkSub?.cancel();
     _donations.dispose();
     _api.close();
@@ -134,6 +151,7 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
             donations: _donations,
             prefs: widget.prefs,
             push: _push,
+            music: _music,
           ),
         ),
       ),
@@ -148,6 +166,7 @@ class Shell extends StatefulWidget {
     required this.donations,
     required this.prefs,
     this.push,
+    this.music,
   });
 
   final Api api;
@@ -156,6 +175,9 @@ class Shell extends StatefulWidget {
 
   /// Absent in tests and in demo mode, where there is no Firebase to talk to.
   final Push? push;
+
+  /// Absent in tests, where there is no audio device.
+  final Music? music;
 
   @override
   State<Shell> createState() => _ShellState();
@@ -196,6 +218,7 @@ class _ShellState extends State<Shell> {
           donations: widget.donations,
           prefs: widget.prefs,
           push: widget.push,
+          music: widget.music,
         );
     }
   }

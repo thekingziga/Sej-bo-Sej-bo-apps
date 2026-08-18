@@ -10,6 +10,7 @@ import 'package:sejbosejbo/donations.dart';
 import 'package:sejbosejbo/l10n.dart';
 import 'package:sejbosejbo/main.dart';
 import 'package:sejbosejbo/models.dart';
+import 'package:sejbosejbo/music.dart';
 import 'package:sejbosejbo/prefs.dart';
 import 'package:sejbosejbo/screens/detail.dart';
 import 'package:sejbosejbo/theme.dart';
@@ -1084,6 +1085,43 @@ void main() {
       expect(prefs.pushEnabled, isFalse);
       await prefs.setPushToken(null);
       expect(prefs.pushToken, isNull);
+    });
+  });
+
+  group('background music', () {
+    test('is off until the user asks for it', () async {
+      // The website defaults on, but a browser cannot start unmuted audio
+      // until the visitor clicks - so "on" there really means "on after you
+      // interact". An app has no such brake, and music at launch would cut off
+      // whatever the phone was already playing.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      expect(prefs.musicEnabled, isFalse);
+      expect(Music(prefs).enabled, isFalse);
+    });
+
+    test('the choice persists, like the website remembers a mute', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      await prefs.setMusicEnabled(true);
+      expect(prefs.musicEnabled, isTrue);
+
+      // A second Prefs over the same store is what a relaunch looks like.
+      expect((await Prefs.load()).musicEnabled, isTrue);
+    });
+
+    test('start() stays silent while disabled, and never throws', () async {
+      SharedPreferences.setMockInitialValues({});
+      final music = Music(await Prefs.load());
+      await music.start();
+      expect(music.playing, isFalse);
+      // No audio device in a test host; the point is that it fails quietly.
+      await music.handleLifecycle(foreground: true);
+      await music.dispose();
+    });
+
+    test('matches the website volume', () {
+      expect(Music.volume, 0.3);
     });
   });
 

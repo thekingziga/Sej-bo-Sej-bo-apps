@@ -9,6 +9,32 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.14.0+18
+
+**Added**
+- **The website's theme music**, same track, same loop, same 0.3 volume, with
+  an on/off switch on the Support tab that remembers your choice. The file is
+  bundled rather than streamed, so it costs the Pi no bandwidth and works
+  offline.
+- Playback **stops when the app goes to the background** and resumes on return.
+  Music that keeps going after you have left is the fastest way to earn an
+  uninstall.
+
+**Deliberate difference from the website**
+- **It is off by default here, where the site defaults on.** That is less of a
+  difference than it sounds: a browser refuses to start unmuted audio until the
+  visitor clicks something, so the site's default is really "on once you
+  interact". An app has no such brake - music at launch would cut off whatever
+  the phone was already playing, which is a much ruder thing to do than in a
+  tab. Say the word and I will flip it.
+
+```
+The website's theme music is now in the app too, with a switch on the Support
+tab. It starts off, so it will never interrupt whatever you are listening to.
+```
+
+---
+
 ## 1.13.0+17
 
 **Added**

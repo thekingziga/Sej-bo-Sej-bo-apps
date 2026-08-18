@@ -20,6 +20,7 @@ class Prefs {
   static const _kMyComments = 'my_comments';
   static const _kPushOn = 'push_enabled';
   static const _kPushToken = 'push_token';
+  static const _kMusicOn = 'music_enabled';
 
   /// How many of our own comment ids to keep. The list only drives a "YOU" tag,
   /// so an unbounded one would grow forever to decorate threads nobody revisits.
@@ -115,6 +116,16 @@ class Prefs {
       await _p.setString(_kPushToken, token);
     }
   }
+
+  // ------------------------------------------------------------------ music
+
+  /// Whether the background theme should play.
+  ///
+  /// Off by default - see [Music] for why this differs from the website, where
+  /// the browser's autoplay block does the same job.
+  bool get musicEnabled => _p.getBool(_kMusicOn) ?? false;
+
+  Future<void> setMusicEnabled(bool on) => _p.setBool(_kMusicOn, on);
 
   // ----------------------------------------------------------- feed cache
 

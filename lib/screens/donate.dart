@@ -7,6 +7,7 @@ import '../api.dart';
 import '../l10n.dart';
 import '../donations.dart';
 import '../models.dart';
+import '../music.dart';
 import '../prefs.dart';
 import '../push.dart';
 import '../theme.dart';
@@ -20,6 +21,7 @@ class DonateScreen extends StatefulWidget {
     required this.donations,
     this.prefs,
     this.push,
+    this.music,
   });
 
   final Api api;
@@ -28,6 +30,9 @@ class DonateScreen extends StatefulWidget {
 
   /// Null in tests and wherever Firebase is unavailable; the toggle hides.
   final Push? push;
+
+  /// Null in tests; the toggle hides.
+  final Music? music;
 
   @override
   State<DonateScreen> createState() => _DonateScreenState();
@@ -211,6 +216,11 @@ class _DonateScreenState extends State<DonateScreen> {
                 const SizedBox(height: 26),
                 if (widget.push != null && widget.prefs != null) ...[
                   _NotificationToggle(push: widget.push!, prefs: widget.prefs!),
+                  const SizedBox(height: 12),
+                ],
+
+                if (widget.music != null) ...[
+                  _MusicToggle(music: widget.music!),
                   const SizedBox(height: 20),
                 ],
 
@@ -358,6 +368,65 @@ class _TierCard extends StatelessWidget {
 }
 
 /// Tells the user - honestly - where their money actually goes on this platform.
+/// On/off for the background theme, the same track the website plays.
+class _MusicToggle extends StatefulWidget {
+  const _MusicToggle({required this.music});
+
+  final Music music;
+
+  @override
+  State<_MusicToggle> createState() => _MusicToggleState();
+}
+
+class _MusicToggleState extends State<_MusicToggle> {
+  late bool _on = widget.music.enabled;
+
+  Future<void> _toggle(bool want) async {
+    setState(() => _on = want);
+    await widget.music.setEnabled(want);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L10n.of(context);
+    return BrutalBox(
+      color: _on ? Brutal.pink : Brutal.paperDeep,
+      dx: 3,
+      dy: 3,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Icon(_on ? Icons.volume_up : Icons.volume_off, size: 20),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(t['musicTitle'], style: Brutal.label.copyWith(fontSize: 13)),
+                const SizedBox(height: 3),
+                Text(
+                  t['musicBody'],
+                  style: Brutal.body.copyWith(
+                    fontSize: 12,
+                    color: Brutal.ink.withValues(alpha: 0.65),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: _on,
+            onChanged: _toggle,
+            activeThumbColor: Brutal.ink,
+            inactiveThumbColor: Brutal.ink,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// On/off for new-post notifications.
 class _NotificationToggle extends StatefulWidget {
   const _NotificationToggle({required this.push, required this.prefs});
