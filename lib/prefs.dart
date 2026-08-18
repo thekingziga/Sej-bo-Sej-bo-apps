@@ -33,10 +33,30 @@ class Prefs {
 
   // ------------------------------------------------------------- device id
 
-  /// A random id minted on first launch and sent with votes so the server can
-  /// reject duplicates. This is soft protection, not security: anyone can clear
-  /// app data and vote again. The server must rate-limit by IP as well - see
-  /// docs/API_PROMPT.md.
+  /// Ids the server minted and signed itself carry this prefix.
+  static const _signedPrefix = 'v1_';
+
+  /// Whether the stored id is one the server signed.
+  ///
+  /// A locally generated id is just a string the client chose, so anyone could
+  /// send a fresh one per request and vote without limit. The server will
+  /// eventually refuse unsigned ids outright; until then both work.
+  bool get hasSignedDeviceId => (_p.getString(_kDeviceId) ?? '').startsWith(_signedPrefix);
+
+  /// Replaces the stored id with one the server minted.
+  ///
+  /// Note this changes who the server thinks this install is, so any votes cast
+  /// under the old id stop being attributed to it. That is unavoidable when
+  /// moving from a self-chosen id to a signed one, and is the lesser cost:
+  /// keeping the old id would break voting entirely once the server starts
+  /// requiring signatures.
+  Future<void> setDeviceId(String id) => _p.setString(_kDeviceId, id);
+
+  /// The id sent with votes, comments and reads.
+  ///
+  /// Falls back to a locally generated random id, which the server still
+  /// accepts, when it has never managed to mint a signed one - offline first
+  /// run, or the mint endpoint being rate limited.
   String get deviceId {
     final existing = _p.getString(_kDeviceId);
     if (existing != null && existing.isNotEmpty) return existing;

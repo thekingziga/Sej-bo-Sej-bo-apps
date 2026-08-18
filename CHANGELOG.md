@@ -9,6 +9,37 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.12.0+16
+
+**Changed**
+- **Device ids are now minted and signed by the server.** The app used to
+  generate its own, which meant it was just a string the client chose - anyone
+  could send a fresh one per request and vote as many times as they liked. The
+  app now asks the server for a signed id once per install and sends that
+  instead.
+- Minting runs **exactly once**, guarded by checking for an id already held.
+  Minting is capped at 10 per IP per hour, and a new id each launch would read
+  as a new person and throw away the user's voting history.
+- Any failure - offline, rate limited, malformed - silently keeps the locally
+  generated id, which the server still accepts. A device id is not worth
+  blocking a launch over.
+
+**Note for existing installs**
+- Upgrading swaps an unsigned id for a signed one, so votes cast under the old
+  id stop being attributed. Unavoidable when moving to signed ids, and the
+  lesser cost: keeping the old one breaks voting entirely once the server
+  starts requiring signatures.
+
+**Verified against production**
+- A real minted id round-tripped: reads return `my_vote`, a vote registers, and
+  withdrawing leaves the count where it started. 95 tests, up from 89.
+
+```
+Voting is now harder to fake, which keeps the rankings honest.
+```
+
+---
+
 ## 1.11.2+15
 
 **Added**

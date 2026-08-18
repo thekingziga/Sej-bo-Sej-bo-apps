@@ -904,6 +904,90 @@ void main() {
     });
   });
 
+  group('signed device ids', () {
+    test('parses the minted id', () async {
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient(
+          (_) async => http.Response('{"device_id":"v1_abc_def"}', 200),
+        ),
+      );
+      expect(await api.mintDeviceId(), 'v1_abc_def');
+    });
+
+    test('hits POST /device', () async {
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"device_id":"v1_x"}', 200);
+        }),
+      );
+      await api.mintDeviceId();
+      expect(sent.method, 'POST');
+      expect(sent.url.path, '/api/v1/device');
+    });
+
+    test('returns null on every failure, so the local id keeps working', () async {
+      // Minting is capped at 10/hour per IP. A failure must never block voting;
+      // the server still accepts unsigned ids.
+      for (final response in [
+        () => http.Response('', 429),
+        () => http.Response('', 500),
+        () => http.Response('{}', 200),
+        () => http.Response('{"device_id":""}', 200),
+        () => http.Response('not json', 200),
+      ]) {
+        final api = Api(
+          baseUrl: 'https://example.test',
+          useDemoData: false,
+          client: MockClient((_) async => response()),
+        );
+        expect(await api.mintDeviceId(), isNull);
+      }
+
+      final offline = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((_) async => throw Exception('offline')),
+      );
+      expect(await offline.mintDeviceId(), isNull);
+    });
+
+    test('a signed id is recognised, a locally generated one is not', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+
+      // Untouched: the getter mints a local hex id on first read.
+      expect(prefs.hasSignedDeviceId, isFalse);
+      final local = prefs.deviceId;
+      expect(local, matches(RegExp(r'^[0-9a-f]{32}$')));
+
+      await prefs.setDeviceId('v1_khQnVEOqdDB4SiOzVL4cA-bD_yEuq5mhQhHsXsFxYXVFHPIGbgKo6tyGB');
+      expect(prefs.hasSignedDeviceId, isTrue);
+      expect(prefs.deviceId, startsWith('v1_'));
+    });
+
+    test('a stored signed id is kept, so minting runs at most once', () async {
+      SharedPreferences.setMockInitialValues({'device_id': 'v1_already_have_one'});
+      final prefs = await Prefs.load();
+      expect(prefs.hasSignedDeviceId, isTrue);
+      expect(prefs.deviceId, 'v1_already_have_one');
+    });
+
+    test('both id shapes satisfy the server pattern', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      final pattern = RegExp(r'^[A-Za-z0-9_-]{8,128}$');
+      expect(prefs.deviceId, matches(pattern));
+      await prefs.setDeviceId('v1_khQnVEOqdDB4SiOzVL4cA-bD_yEuq5mhQhHsXsFxYXVFHPIGbgKo6tyGB');
+      expect(prefs.deviceId, matches(pattern));
+    });
+  });
+
   group('donation tiers', () {
     test('prices are whole euros in minor units', () {
       expect(kDonationTiers.map((t) => t.amountMinor), [200, 500, 1500]);

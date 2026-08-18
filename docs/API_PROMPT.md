@@ -102,6 +102,26 @@ Used everywhere a post appears:
   keeps no local vote ledger at all - the server is the record. That is what
   makes votes survive a reinstall or a cleared cache.
 
+## Device identity
+
+```
+POST /api/v1/device
+200 -> { "device_id": "v1_xxxxxxxx_yyyyyyyy" }
+```
+
+Called **once per install**, never on every launch: minting is limited to 10
+per IP per hour, and a fresh id reads as a fresh person, discarding the user's
+voting history. The result is stored where the app used to keep its own
+generated id and sent in `X-Device-Id` as before.
+
+A self-chosen id let anyone send a new one per request and vote without limit,
+which is what the signature closes. The server still accepts unsigned ids until
+`REQUIRE_SIGNED_DEVICE_ID=true`, so any failure to mint - offline, rate limited -
+falls back to the locally generated id rather than blocking voting.
+
+One IP may vote from at most 20 distinct devices per hour; over that is a 429
+with `Retry-After`, handled like any other rate limit.
+
 ## Rate limiting
 
 Every `429` carries both a `Retry-After` header (seconds) and

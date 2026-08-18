@@ -358,6 +358,32 @@ class Api {
     }
   }
 
+  /// Asks the server to mint a signed device id.
+  ///
+  /// Returns null on any failure, including the 10-per-hour mint limit, so the
+  /// caller can keep using the locally generated id - which the server still
+  /// accepts. Never call this on every launch: a new id each time reads as a
+  /// new person and throws away the user's voting history.
+  Future<String?> mintDeviceId() async {
+    if (_demo) return null;
+    late http.Response res;
+    try {
+      res = await _client
+          .post(_uri('/device'), headers: {'Accept': 'application/json'})
+          .timeout(_timeout);
+    } catch (_) {
+      return null;
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) return null;
+    try {
+      final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      final id = j['device_id'];
+      return (id is String && id.trim().isNotEmpty) ? id.trim() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Asks the server which app versions it still supports.
   ///
   /// Returns null on **any** failure - endpoint missing, server down, offline,

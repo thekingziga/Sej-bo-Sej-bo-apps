@@ -44,6 +44,20 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
     super.initState();
     _donations.init();
     _initDeepLinks();
+    _ensureSignedDeviceId();
+  }
+
+  /// Swaps the locally generated device id for one the server signs, exactly
+  /// once per install.
+  ///
+  /// Minting is limited to 10 per IP per hour and a fresh id reads as a fresh
+  /// person, so this must never run on every launch - hence the check for an
+  /// id we already hold. Any failure is silent: the server still accepts
+  /// unsigned ids, and a device id is not worth blocking a launch over.
+  Future<void> _ensureSignedDeviceId() async {
+    if (widget.prefs.hasSignedDeviceId) return;
+    final id = await _api.mintDeviceId();
+    if (id != null) await widget.prefs.setDeviceId(id);
   }
 
   /// Handles `sejbosejbo.fyi/post/<id>` both on cold start and while running.
