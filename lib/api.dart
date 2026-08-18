@@ -358,6 +358,70 @@ class Api {
     }
   }
 
+  /// Registers this install's FCM token for new-post notifications.
+  ///
+  /// Idempotent - re-registering only refreshes `last_seen` - so it is called
+  /// on every launch and on every token rotation.
+  ///
+  /// Returns the server's `delivery_enabled`, which reports whether it has
+  /// Firebase credentials yet. **The caller must not gate registration on it
+  /// or show the user an error**: tokens collected while delivery is off are
+  /// kept, and those installs get the first notification once it is switched
+  /// on.
+  Future<bool> registerPush({
+    required String token,
+    required String platform,
+    required String lang,
+  }) async {
+    if (_demo) return false;
+    final res = await _client
+        .post(
+          _uri('/push/register'),
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: jsonEncode({'token': token, 'platform': platform, 'lang': lang}),
+        )
+        .timeout(_timeout);
+
+    if (res.statusCode == 429) {
+      throw ApiException.rateLimited(res, 'Too many attempts. Try again later.');
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      String msg = 'Could not turn notifications on (${res.statusCode}).';
+      try {
+        final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        if (j['error'] is String) msg = j['error'] as String;
+      } catch (_) {}
+      throw ApiException(msg, statusCode: res.statusCode);
+    }
+    try {
+      final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      return j['delivery_enabled'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Stops notifications for this token. Called when the user turns them off.
+  Future<void> unregisterPush(String token) async {
+    if (_demo) return;
+    final res = await _client
+        .post(
+          _uri('/push/unregister'),
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: jsonEncode({'token': token}),
+        )
+        .timeout(_timeout);
+    if (res.statusCode == 429) {
+      throw ApiException.rateLimited(res, 'Too many attempts. Try again later.');
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(
+        'Could not turn notifications off (${res.statusCode}).',
+        statusCode: res.statusCode,
+      );
+    }
+  }
+
   /// Asks the server to mint a signed device id.
   ///
   /// Returns null on any failure, including the 10-per-hour mint limit, so the

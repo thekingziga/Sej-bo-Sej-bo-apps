@@ -7,15 +7,27 @@ import '../api.dart';
 import '../l10n.dart';
 import '../donations.dart';
 import '../models.dart';
+import '../prefs.dart';
+import '../push.dart';
 import '../theme.dart';
 import '../update_gate.dart';
 import '../widgets.dart';
 
 class DonateScreen extends StatefulWidget {
-  const DonateScreen({super.key, required this.api, required this.donations});
+  const DonateScreen({
+    super.key,
+    required this.api,
+    required this.donations,
+    this.prefs,
+    this.push,
+  });
 
   final Api api;
   final DonationGateway donations;
+  final Prefs? prefs;
+
+  /// Null in tests and wherever Firebase is unavailable; the toggle hides.
+  final Push? push;
 
   @override
   State<DonateScreen> createState() => _DonateScreenState();
@@ -197,6 +209,11 @@ class _DonateScreenState extends State<DonateScreen> {
                   ],
                 ],
                 const SizedBox(height: 26),
+                if (widget.push != null && widget.prefs != null) ...[
+                  _NotificationToggle(push: widget.push!, prefs: widget.prefs!),
+                  const SizedBox(height: 20),
+                ],
+
                 // Play and Apple both expect the privacy policy and terms to be
                 // reachable from inside the app, not only from the store listing.
                 const _LegalLinks(),
@@ -341,6 +358,84 @@ class _TierCard extends StatelessWidget {
 }
 
 /// Tells the user - honestly - where their money actually goes on this platform.
+/// On/off for new-post notifications.
+class _NotificationToggle extends StatefulWidget {
+  const _NotificationToggle({required this.push, required this.prefs});
+
+  final Push push;
+  final Prefs prefs;
+
+  @override
+  State<_NotificationToggle> createState() => _NotificationToggleState();
+}
+
+class _NotificationToggleState extends State<_NotificationToggle> {
+  late bool _on = widget.prefs.pushEnabled;
+  bool _busy = false;
+
+  Future<void> _toggle(bool want) async {
+    setState(() {
+      _busy = true;
+      _on = want;
+    });
+    final ok = await widget.push.setEnabled(want);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      // Put the switch back if it did not take - usually a denied OS
+      // permission. Leaving it on would claim a state we do not have.
+      if (!ok) _on = widget.prefs.pushEnabled;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L10n.of(context);
+    return BrutalBox(
+      color: _on ? Brutal.lime : Brutal.paperDeep,
+      dx: 3,
+      dy: 3,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Icon(_on ? Icons.notifications_active : Icons.notifications_off, size: 20),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(t['notifyTitle'], style: Brutal.label.copyWith(fontSize: 13)),
+                const SizedBox(height: 3),
+                Text(
+                  t['notifyBody'],
+                  style: Brutal.body.copyWith(
+                    fontSize: 12,
+                    color: Brutal.ink.withValues(alpha: 0.65),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_busy)
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 3, color: Brutal.ink),
+            )
+          else
+            Switch(
+              value: _on,
+              onChanged: _toggle,
+              activeThumbColor: Brutal.ink,
+              inactiveThumbColor: Brutal.ink,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Explains the odd tier prices, in the same quiet grey as the rail note.
 class _PriceNote extends StatelessWidget {
   @override

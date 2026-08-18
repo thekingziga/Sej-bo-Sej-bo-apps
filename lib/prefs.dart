@@ -18,6 +18,8 @@ class Prefs {
   static const _kFeedCache = 'feed_cache';
   static const _kFeedCachedAt = 'feed_cached_at';
   static const _kMyComments = 'my_comments';
+  static const _kPushOn = 'push_enabled';
+  static const _kPushToken = 'push_token';
 
   /// How many of our own comment ids to keep. The list only drives a "YOU" tag,
   /// so an unbounded one would grow forever to decorate threads nobody revisits.
@@ -89,6 +91,29 @@ class Prefs {
       list.removeRange(0, list.length - _maxRememberedComments);
     }
     await _p.setStringList(_kMyComments, list);
+  }
+
+  // ---------------------------------------------------------- notifications
+
+  /// Whether the user wants new-post notifications.
+  ///
+  /// Defaults to true: permission is still asked for separately by the OS, so
+  /// this only records a later decision to turn them back off. A null here
+  /// would be indistinguishable from "off" and would silently opt everyone out.
+  bool get pushEnabled => _p.getBool(_kPushOn) ?? true;
+
+  Future<void> setPushEnabled(bool on) => _p.setBool(_kPushOn, on);
+
+  /// The last FCM token we registered, kept so it can be unregistered even
+  /// after Firebase has rotated or deleted the live one.
+  String? get pushToken => _p.getString(_kPushToken);
+
+  Future<void> setPushToken(String? token) async {
+    if (token == null) {
+      await _p.remove(_kPushToken);
+    } else {
+      await _p.setString(_kPushToken, token);
+    }
   }
 
   // ----------------------------------------------------------- feed cache

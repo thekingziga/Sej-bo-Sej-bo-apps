@@ -9,6 +9,52 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.13.0+17
+
+**Added**
+- **Push notifications for new posts.** One notification when something is
+  posted, and nothing else. Registration happens on every launch (the endpoint
+  is idempotent) and again whenever Firebase rotates the token, since a stale
+  token is a notification that goes nowhere.
+- **Tapping a notification opens that post**, not the home screen - keyed off
+  `data.post_id` rather than parsing the URL, and wired for all three states:
+  foreground, background, and terminated via `getInitialMessage`. The last is
+  the easy one to miss, since the message is delivered once at startup and
+  never appears on a stream.
+- **An on/off switch on the Support tab**, which unregisters the token server
+  side rather than just muting locally. It puts itself back if the change did
+  not take - usually a denied OS permission - instead of claiming a state we
+  do not have.
+- Android notification channel declared in the manifest, so it exists before
+  the first message. Android 8+ drops notifications for an unknown channel
+  silently, and creating it on first receipt would be too late for that
+  message.
+
+**Deliberate**
+- Registration does **not** gate on `delivery_enabled`, and its being false is
+  never shown to the user. Tokens collected now are kept and receive the first
+  notification once the Firebase service account is installed server-side.
+- Every failure is silent: no Firebase config, denied permission, offline, or
+  the 30/hour register limit. Push is layered on an app that works without it.
+
+**Verified in the built APK**
+- `POST_NOTIFICATIONS` present, the Firebase project baked into resources, the
+  `sejbosejbo_posts` channel declared, and `FirebaseMessagingService`
+  registered. 101 tests, up from 95.
+
+**Still needed server-side**
+- The Firebase service account, until which `delivery_enabled` stays false and
+  nothing is actually delivered.
+
+```
+NEW: get a notification when a new Sejbosejbo is posted. One per post, nothing
+else, and you can turn it off on the Support tab.
+
+Tapping a notification takes you straight to the post.
+```
+
+---
+
 ## 1.12.0+16
 
 **Changed**

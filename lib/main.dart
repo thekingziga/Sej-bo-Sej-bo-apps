@@ -7,6 +7,7 @@ import 'api.dart';
 import 'donations.dart';
 import 'l10n.dart';
 import 'prefs.dart';
+import 'push.dart';
 import 'screens/detail.dart';
 import 'screens/donate.dart';
 import 'screens/gallery.dart';
@@ -39,12 +40,22 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription<Uri>? _linkSub;
 
+  late final Push _push = Push(
+    api: _api,
+    prefs: widget.prefs,
+    // A tapped notification lands on the same screen a deep link does.
+    onOpenPost: _openPost,
+  );
+
+  Push get push => _push;
+
   @override
   void initState() {
     super.initState();
     _donations.init();
     _initDeepLinks();
     _ensureSignedDeviceId();
+    _push.start();
   }
 
   /// Swaps the locally generated device id for one the server signs, exactly
@@ -78,7 +89,12 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
     if (i == -1 || i + 1 >= segments.length) return;
     final id = int.tryParse(segments[i + 1]);
     if (id == null) return;
+    _openPost(id);
+  }
 
+  /// Shared by deep links and notification taps: both must land on the post
+  /// itself, not the home screen.
+  void _openPost(int id) {
     _navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => PostDetailScreen.byId(api: _api, prefs: widget.prefs, id: id)),
     );
@@ -113,7 +129,12 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
         // onto a post.
         home: UpdateGate(
           api: _api,
-          child: Shell(api: _api, donations: _donations, prefs: widget.prefs),
+          child: Shell(
+            api: _api,
+            donations: _donations,
+            prefs: widget.prefs,
+            push: _push,
+          ),
         ),
       ),
     );
@@ -121,11 +142,20 @@ class _SejbosejboAppState extends State<SejbosejboApp> {
 }
 
 class Shell extends StatefulWidget {
-  const Shell({super.key, required this.api, required this.donations, required this.prefs});
+  const Shell({
+    super.key,
+    required this.api,
+    required this.donations,
+    required this.prefs,
+    this.push,
+  });
 
   final Api api;
   final DonationGateway donations;
   final Prefs prefs;
+
+  /// Absent in tests and in demo mode, where there is no Firebase to talk to.
+  final Push? push;
 
   @override
   State<Shell> createState() => _ShellState();
@@ -161,7 +191,12 @@ class _ShellState extends State<Shell> {
       case 2:
         return UploadScreen(api: widget.api);
       default:
-        return DonateScreen(api: widget.api, donations: widget.donations);
+        return DonateScreen(
+          api: widget.api,
+          donations: widget.donations,
+          prefs: widget.prefs,
+          push: widget.push,
+        );
     }
   }
 

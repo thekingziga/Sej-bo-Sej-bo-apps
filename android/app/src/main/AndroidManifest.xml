@@ -4,6 +4,10 @@
          this feature, which silently drops every device that cannot do
          portrait - landscape-only tablets, Chromebooks, TVs. Play reports that
          as "this release supports fewer devices than the previous one". -->
+    <!-- Android 13+ requires this to be requested at runtime as well; older
+         releases grant notifications implicitly. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application
@@ -54,6 +58,14 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Android 8+ silently drops a notification whose channel does not
+             exist. Declaring the default here means the channel is created by
+             the FCM service before the first message can arrive, rather than
+             on first receipt - which would be too late for that message. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="sejbosejbo_posts" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

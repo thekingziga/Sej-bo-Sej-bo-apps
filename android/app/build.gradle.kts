@@ -3,6 +3,10 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    // Firebase config. This plugin fails the build outright if
+    // android/app/google-services.json is missing, which is deliberate: a
+    // silently unconfigured Firebase would mean push simply never arriving.
+    id("com.google.gms.google-services")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }

@@ -988,6 +988,105 @@ void main() {
     });
   });
 
+  group('push registration', () {
+    test('posts the documented shape', () async {
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"ok":true,"delivery_enabled":false}', 200);
+        }),
+      );
+
+      await api.registerPush(token: 'fcm-token', platform: 'android', lang: 'sl');
+      expect(sent.url.path, '/api/v1/push/register');
+      expect(jsonDecode(sent.body),
+          {'token': 'fcm-token', 'platform': 'android', 'lang': 'sl'});
+    });
+
+    test('reports delivery_enabled without gating on it', () async {
+      // Tokens registered while delivery is off are kept server-side and get
+      // the first notification once Firebase credentials land, so false must
+      // not read as a failure.
+      Api build(String body) => Api(
+            baseUrl: 'https://example.test',
+            useDemoData: false,
+            client: MockClient((_) async => http.Response(body, 200)),
+          );
+
+      expect(await build('{"ok":true,"delivery_enabled":false}')
+          .registerPush(token: 't', platform: 'android', lang: 'en'), isFalse);
+      expect(await build('{"ok":true,"delivery_enabled":true}')
+          .registerPush(token: 't', platform: 'android', lang: 'en'), isTrue);
+      // Missing field is not an error either.
+      expect(await build('{"ok":true}')
+          .registerPush(token: 't', platform: 'android', lang: 'en'), isFalse);
+    });
+
+    test('400 surfaces the server wording', () async {
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient(
+          (_) async => http.Response('{"error":"A valid token is required."}', 400),
+        ),
+      );
+      await expectLater(
+        () => api.registerPush(token: '', platform: 'android', lang: 'en'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', contains('valid token'))),
+      );
+    });
+
+    test('429 carries the retry delay, so nothing loops', () async {
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient(
+          (_) async => http.Response('{}', 429, headers: {'retry-after': '120'}),
+        ),
+      );
+      await expectLater(
+        () => api.registerPush(token: 't', platform: 'android', lang: 'en'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 120))),
+      );
+    });
+
+    test('unregister posts just the token', () async {
+      late http.Request sent;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          sent = req;
+          return http.Response('{"ok":true}', 200);
+        }),
+      );
+      await api.unregisterPush('fcm-token');
+      expect(sent.url.path, '/api/v1/push/unregister');
+      expect(jsonDecode(sent.body), {'token': 'fcm-token'});
+    });
+
+    test('notifications default to on, and the token round-trips', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      // Defaulting to off would silently opt everyone out; the OS permission
+      // prompt is the real gate.
+      expect(prefs.pushEnabled, isTrue);
+      expect(prefs.pushToken, isNull);
+
+      await prefs.setPushToken('abc');
+      expect(prefs.pushToken, 'abc');
+      await prefs.setPushEnabled(false);
+      expect(prefs.pushEnabled, isFalse);
+      await prefs.setPushToken(null);
+      expect(prefs.pushToken, isNull);
+    });
+  });
+
   group('donation tiers', () {
     test('prices are whole euros in minor units', () {
       expect(kDonationTiers.map((t) => t.amountMinor), [200, 500, 1500]);

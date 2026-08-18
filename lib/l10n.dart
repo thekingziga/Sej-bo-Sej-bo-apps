@@ -124,6 +124,8 @@ class Strings {
     'donateSoonTitle': 'TIPPING IS NOT LIVE YET',
     'donateSoonBody': 'The payment side is still being set up on this platform. '
         'Nothing is wrong with your app - check back soon.',
+    'notifyTitle': 'NEW SEJBOSEJBO ALERTS',
+    'notifyBody': 'One notification when something new is posted. Nothing else, ever.',
     'versionApp': 'App',
     'versionSite': 'Website',
     'updateTitle': 'UPDATE REQUIRED',
@@ -243,6 +245,8 @@ class Strings {
     'donateSoonTitle': 'NAPITNINE ŠE NISO ŽIVE',
     'donateSoonBody': 'Plačilni del se na tej platformi še ureja. Z aplikacijo '
         'ni nič narobe - poglej spet kmalu.',
+    'notifyTitle': 'OBVESTILA O NOVIH SEJBOSEJBIH',
+    'notifyBody': 'Eno obvestilo, ko je objavljeno kaj novega. Nič drugega, nikoli.',
     'versionApp': 'Aplikacija',
     'versionSite': 'Spletna stran',
     'updateTitle': 'POTREBNA POSODOBITEV',
