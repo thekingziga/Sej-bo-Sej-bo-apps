@@ -34,6 +34,22 @@ if (-not (Test-Path (Join-Path $ProjectRoot 'pubspec.yaml'))) {
 
 Step 'Checking prerequisites'
 
+# Flutter builds Windows apps for x64 or arm64 - there is no 32-bit x86 target,
+# and the binary always matches the machine it was built on. Building on
+# Windows-on-ARM (a Parallels VM on an Apple Silicon Mac, a Surface Pro X)
+# therefore produces something that will not start on an ordinary PC.
+$hostArch = $env:PROCESSOR_ARCHITECTURE
+if ($hostArch -eq 'ARM64') {
+  Warn "This machine is ARM64, so the build will be ARM64 and will NOT run on a normal x64 PC."
+  Warn "For an x64 build use a real Intel/AMD Windows machine, or the GitHub Actions"
+  Warn "workflow in .github/workflows/build.yml, which runs on x64 runners."
+  if ((Read-Host 'Continue anyway and produce an ARM64 build? (y/N)') -ne 'y') {
+    throw 'Stopped - build this on an x64 machine instead.'
+  }
+} else {
+  Ok "host architecture $hostArch (x64 build)"
+}
+
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
   throw "winget is missing. Install 'App Installer' from the Microsoft Store, then re-run."
 }
@@ -103,8 +119,35 @@ $exe = Get-ChildItem -Path (Join-Path $ProjectRoot 'build\windows') `
 
 if (-not $exe) { throw 'Build reported success but no sejbosejbo.exe was found.' }
 
+# Read the machine type straight out of the PE header rather than trusting the
+# output path. Shipping an ARM64 binary to someone on an ordinary PC produces
+# an error message that explains nothing, so it is worth being certain.
+function Get-PEMachine([string]$Path) {
+  $fs = [IO.File]::OpenRead($Path)
+  try {
+    $br = New-Object IO.BinaryReader($fs)
+    $fs.Position = 0x3C
+    $peOffset = $br.ReadInt32()
+    $fs.Position = $peOffset
+    if ($br.ReadUInt32() -ne 0x00004550) { return 'not a PE file' }   # 'PE\0\0'
+    switch ($br.ReadUInt16()) {
+      0x8664  { 'x64' }
+      0xAA64  { 'ARM64' }
+      0x014C  { 'x86 (32-bit)' }
+      default { 'unknown' }
+    }
+  } finally { $fs.Dispose() }
+}
+
+$machine = Get-PEMachine $exe.FullName
+
 Step 'Done'
 Ok $exe.FullName
+if ($machine -eq 'x64') {
+  Ok "architecture $machine - runs on any normal Windows PC"
+} else {
+  Warn "architecture $machine - this will NOT run on an ordinary x64 PC"
+}
 Write-Host ''
 Write-Host '  The whole Release folder is the app - copy it somewhere and run the exe.'
 Write-Host '  Everything beside it (the DLLs and the data folder) is required.'
