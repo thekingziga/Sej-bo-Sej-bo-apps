@@ -13,6 +13,9 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- Paper even here. The app has no dark theme - it is the website's
+             warm paper on every device - so inheriting the OS's dark window
+             background only bought a dark flash before the first frame. -->
+        <item name="android:windowBackground">@color/paper</item>
     </style>
 </resources>

@@ -146,6 +146,30 @@ there is no self-service path back.
 - **Crash reporting.** There is none. `firebase_core` is already present, so
   Crashlytics is a small addition - but it changes the privacy policy again and
   wants testing, so it is a poor thing to bolt on the day of a release.
-- **R8 minification** is not enabled. It would trim the dex, but Firebase and
-  billing use reflection, so it needs real-device testing of the purchase and
-  notification paths. Not worth the risk this week.
+- ~~**R8 minification** is not enabled.~~ It is - this was wrong. Flutter turns
+  R8 on for release builds itself, and `build/app/outputs/mapping/release/` has
+  the proof: `mapping.txt`, written next to every bundle, resolving names like
+  `b.s` back to `androidx.activity.EdgeToEdgeApi23`. Nothing to enable. **Upload
+  `mapping.txt` with each release** so Play can deobfuscate crash reports -
+  Android vitals shows minified frames without it.
+
+## Play's "recommended actions"
+
+These appear on the release dashboard after a build goes live. They are advice,
+not policy, and none of them blocks anything. As of 1.16.1 there were three.
+
+**Edge-to-edge on older Android** - acted on in 1.16.2. See the changelog.
+
+**"Uses deprecated edge-to-edge APIs"** - a false positive, and worth knowing
+how it was settled rather than argued about. Play lists the call sites in
+minified form (`b.s.P`, `b.t.P`, `b.w.P`, `b.y.P`, `b.u.q`); the R8 mapping file
+turns those back into `androidx.activity.EdgeToEdgeApi23/26/28/29/35`. That is
+AndroidX's own edge-to-edge helper, already at the current 1.12.4, and the
+`setStatusBarColor` and `setNavigationBarColor` calls sit in the branches for
+Android 6 through 10, which never run on 15. `FlutterActivity` extends
+`android.app.Activity`, not `ComponentActivity`, so the app cannot call
+`enableEdgeToEdge()` and never reaches that code at all. Play scans bytecode, not
+call graphs. Expect this one to come back on every release; it can be ignored.
+
+**Picture-in-picture** - declined. Native work on both sides of the platform
+channel, for a feed of short clips.

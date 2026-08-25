@@ -9,6 +9,44 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.16.2+22
+
+Play's release dashboard raised three "recommended actions" against 1.16.1.
+One was worth acting on, one was a false positive, one was declined.
+
+**Changed**
+- **The status bar sits on paper on every Android version, not just 15 and up.**
+  Android 15 forces an app to draw behind the system bars; below that an app has
+  to ask, and this one never did - so the same screen had a grey band across the
+  top on Android 14 and paper on Android 16. It now asks at startup. Verified on
+  both: API 34 goes from grey band to paper, API 36 is pixel-for-pixel unchanged.
+- **The window is paper before Flutter's first frame**, rather than white in
+  light mode and near-black in dark mode. That was a flash of the wrong colour
+  on every cold start.
+
+**Not changed, and why**
+- **"Uses deprecated edge-to-edge APIs" is not this app's code.** Play named five
+  call sites in minified classes; the R8 mapping resolves all five to
+  `androidx.activity.EdgeToEdgeApi23/26/28/29/35` - AndroidX's own helper, at the
+  current 1.12.4, where the deprecated calls live in the branches that exist to
+  support Android 6 to 10 and are skipped on 15+. `FlutterActivity` extends plain
+  `Activity`, not `ComponentActivity`, so this app never even calls into them.
+  There is no version to upgrade to and nothing to rewrite.
+- **The navigation bar stays black on Android 14 and below.** Android 10+ takes
+  the gesture bar's colour into its own hands. Transparent, paper, and the window
+  theme were all tried and all measured black; its white pill is legible as it is,
+  and asking for dark icons over it would have made things worse, not better.
+- **Picture-in-picture** was declined. It is native plumbing on both sides of the
+  platform channel for a feed of joke clips nobody watches while doing something
+  else.
+
+```
+The status bar now matches the app on every Android version instead of only the
+newest ones, and the app no longer flashes the wrong colour when it starts.
+```
+
+---
+
 ## 1.16.1+21
 
 **Fixed**

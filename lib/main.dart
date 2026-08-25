@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'donations.dart';
@@ -19,6 +20,13 @@ import 'update_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Android 15 and up draw behind the system bars whether an app asks or not;
+  // Android 14 and down only do it if asked, and Play's "may not display
+  // edge-to-edge for all users" advice is about the gap. Asking closes it for
+  // the status bar - paper behind it instead of a grey scrim - and nothing
+  // moves on 15+, where every screen already insets with SafeArea.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(Brutal.overlayStyle);
   final prefs = await Prefs.load();
   runApp(SejbosejboApp(prefs: prefs));
 }

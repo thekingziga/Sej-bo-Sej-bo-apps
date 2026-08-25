@@ -35,6 +35,26 @@ class Brutal {
 
   static Border get outline => Border.all(color: ink, width: border);
 
+  /// How the status bar is painted over the app.
+  ///
+  /// A transparent status bar with no contrast scrim is what lets [paper] show
+  /// behind the clock instead of the grey band Android draws by default, and
+  /// dark icons are what keeps the clock readable on it. Measured on API 34:
+  /// drop the transparent colour and the grey band comes straight back.
+  ///
+  /// The navigation bar is left alone deliberately. Android 10+ takes the
+  /// gesture bar's colour into its own hands and ignores the app's, so on 14
+  /// and below it stays black with a white pill however it is asked - paper,
+  /// transparent, window theme, all measured, all black. Asking for dark icons
+  /// there would only be asking for dark-on-black. On 15+ the window extends
+  /// under it and it shows paper on its own.
+  static const overlayStyle = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark, // dark icons, we are on paper
+    statusBarBrightness: Brightness.light, // iOS reads this one instead
+    systemStatusBarContrastEnforced: false,
+  );
+
   static ThemeData theme() {
     const family = 'ComicNeue';
     final base = ThemeData.light(useMaterial3: true);
@@ -50,7 +70,7 @@ class Brutal {
         backgroundColor: paper,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        systemOverlayStyle: overlayStyle,
       ),
     );
   }

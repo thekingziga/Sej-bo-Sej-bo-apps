@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brutal.paper from lib/theme.dart. The window is this colour from the
+         moment the process starts, so there is no white flash before Flutter
+         paints its first frame, and the system bars sit on it rather than on
+         black. -->
+    <color name="paper">#FFFFFCF2</color>
+</resources>
