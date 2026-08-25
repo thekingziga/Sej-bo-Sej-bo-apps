@@ -6,7 +6,17 @@ Play Console.
 
 ---
 
-## Blocker 1 — the privacy policy is out of date
+## Blocker 1 — resolved
+
+The privacy policy was corrected on 2026-08-25 and now matches the app: the
+server-issued device id, the id travelling on reads, Firebase Cloud Messaging
+and the push token, audio and video uploads, and Stripe. Re-read against the
+app before the Data safety form goes in.
+
+<details>
+<summary>What was wrong (kept for the record)</summary>
+
+## The privacy policy was out of date
 
 Play requires the Data safety declaration to match the privacy policy, and an
 inaccurate policy is a policy violation whether or not anyone notices at
@@ -21,22 +31,32 @@ review. Four statements on `sejbosejbo.fyi/privacy` are no longer true:
 
 Also stale: "In-app tipping isn't turned on yet" - Stripe is live on desktop.
 
-The wording to fix this is in the reply that accompanied this file; it goes to
-the website chat.
+</details>
 
-## Blocker 2 — two advertised features do not work yet
+## Blocker 2 — resolved
 
-Neither stops a release, but neither should be advertised in the store listing:
+Both features that were incomplete now work, verified on 2026-08-25:
 
-- **Push notifications.** The app registers tokens correctly and the toggle
-  works, but nothing is delivered until the Firebase service account is
-  installed server-side. Users would switch it on and receive nothing.
-- **Tipping on Android.** The Play products exist, but `/donations/google/verify`
-  returns 503 without the Google service account, so the app hides the tip UI.
-  Correct behaviour, but it means the Support tab shows nothing to buy.
+- **Push notifications** deliver. `POST /push/register` returns
+  `delivery_enabled: true`; a probe token registered and unregistered cleanly.
+- **Tipping** works in-app, confirmed by a real purchase.
 
-Do not mention either in the listing text until they work. Adding them to a
-later listing update costs nothing.
+Both are now safe to describe in the listing, and both are.
+
+### One robustness wart, not a blocker
+
+`/donations/{google,apple}/verify` answers an **invalid** receipt with `500`
+rather than `400`. Real purchases verify fine - this only shows up for a
+receipt Google or Apple rejects.
+
+It matters because the app reads those codes differently: a `400` is permanent,
+so the transaction is deliberately left unfinished and the store refunds it
+after three days, which is the correct outcome for a bad receipt. A `500` reads
+as transient, so the app keeps replaying it on every launch instead. Nobody
+loses money either way; it just never resolves.
+
+Worth fixing server-side eventually: distinguish "the store says this receipt
+is bad" (`400`) from "we could not reach the store" (`5xx`).
 
 ---
 
