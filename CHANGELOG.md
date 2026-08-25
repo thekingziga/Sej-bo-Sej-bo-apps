@@ -24,6 +24,21 @@ One was worth acting on, one was a false positive, one was declined.
   light mode and near-black in dark mode. That was a flash of the wrong colour
   on every cold start.
 
+**Fixed**
+- **A tip that could not be verified is no longer treated the same as one the
+  store rejected.** The server now answers `400` only when the store itself
+  rejects a receipt - final, nothing to retry - and `5xx` when it never got a
+  verdict at all. The app had one branch for both, which is wrong in opposite
+  directions: on Apple a permanent rejection was left unfinished, and StoreKit
+  redelivers an unfinished transaction on every launch for the life of the
+  install, so it replayed the same rejection for ever; a transient outage, on
+  either rail, risked being read as a rejection. Now a `400` is finished on
+  Apple and deliberately left alone on Google, where an unconsumed purchase is
+  revoked and refunded after three days - which is the right outcome for a bad
+  receipt, and also the safe one for a *pending* Google purchase, which the
+  server currently answers `400` to as well. Anything else is left unfinished
+  and retried on the next launch, as before.
+
 **Not changed, and why**
 - **"Uses deprecated edge-to-edge APIs" is not this app's code.** Play named five
   call sites in minified classes; the R8 mapping resolves all five to

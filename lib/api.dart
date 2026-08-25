@@ -685,13 +685,19 @@ class Api {
   /// here than anywhere else in this file, because the caller decides whether
   /// to finish the store transaction based on it:
   ///
-  /// - `400` - the receipt genuinely did not check out. Permanent. The caller
-  ///   must NOT finish the transaction; leaving it unfinished is what lets the
-  ///   store refund a purchase that was never valid.
-  /// - `503` - this provider is not configured on the server yet. Also do not
-  ///   finish: the money is real even though we cannot record it.
-  /// - anything else (429, 5xx, offline) - transient. Do not finish either, so
-  ///   the plugin replays it on the next launch and we get another go.
+  /// - `400` - the store looked at the receipt and rejected it. **Final**: the
+  ///   same token gets the same answer for ever, so retrying is pointless.
+  ///   What to do with the transaction then differs by rail - see
+  ///   `DonationGateway._abandonRejected`.
+  /// - `503` - this provider is not configured on the server yet. No verdict
+  ///   was reached; the money may well be real.
+  /// - anything else (429, other 5xx, offline) - also no verdict. The store was
+  ///   unreachable, rate-limited us, or our credentials lapsed. Do not finish,
+  ///   so the plugin replays it on the next launch and we get another go.
+  ///
+  /// The distinction that matters is 400 against everything else, not success
+  /// against failure. Treating a rejection as transient retries a dead receipt
+  /// for ever; treating an outage as a rejection refunds a real tip.
   ///
   /// The server ignores duplicate tokens, so replaying is safe and cannot
   /// double-count.

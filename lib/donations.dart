@@ -65,9 +65,16 @@ class DonationResult {
 }
 
 class DonationGateway {
-  DonationGateway(this._api);
+  DonationGateway(this._api, {bool? isGooglePlay})
+    : _isGooglePlay = isGooglePlay ?? (!kIsWeb && Platform.isAndroid);
 
   final Api _api;
+
+  /// Which store's rules apply. Asked four times below and the answer differs
+  /// in ways that matter for money - what finishing a transaction means, and
+  /// what happens to one that is never finished - so it is decided once here.
+  /// Overridable only so tests can exercise both rails on one host.
+  final bool _isGooglePlay;
   final InAppPurchase _iap = InAppPurchase.instance;
   StreamSubscription<List<PurchaseDetails>>? _sub;
 
@@ -165,38 +172,73 @@ class DonationGateway {
   /// the receipt has actually been checked - otherwise a forged or failed
   /// purchase is accepted permanently.
   ///
-  /// When verification fails the transaction is deliberately left unfinished:
+  /// The status the server answers with is the whole contract, and the two
+  /// failure kinds are not interchangeable:
   ///
-  /// - a `400` receipt is invalid, and leaving it unfinished lets Google
-  ///   auto-refund it after three days, which is the correct outcome;
-  /// - a transient failure (429, 5xx, offline, 503) gets replayed on the next
-  ///   launch by [_replayUnfinished], so a real tip is not lost to a blip.
+  /// - **400** is the store's own verdict on the receipt. It is final - the
+  ///   same token gets the same answer for ever - so there is nothing to retry
+  ///   and the transaction is handed to [_abandonRejected].
+  /// - **anything else** (429, 5xx, 503, offline) means no verdict was reached
+  ///   at all. The purchase may be perfectly genuine, so it is left unfinished
+  ///   and replayed on the next launch by [_replayUnfinished].
   ///
-  /// The risk this trades against is a genuine tip sitting unverified for more
-  /// than three days of server downtime, which Google would then refund. That
-  /// is strictly better than acknowledging money we never recorded.
+  /// Conflating them is how a dead receipt gets retried for ever, or a real tip
+  /// gets refunded over a blip. The risk the second branch trades against is a
+  /// genuine tip sitting unverified through three days of server downtime,
+  /// which Google would then refund - strictly better than acknowledging money
+  /// we never recorded.
   Future<void> _verifyThenFinish(PurchaseDetails p) async {
     final tier = _tierForProduct(p.productID);
     try {
       await _api.verifyStorePurchase(
-        platform: (!kIsWeb && Platform.isAndroid) ? 'google' : 'apple',
+        platform: _isGooglePlay ? 'google' : 'apple',
         productId: p.productID,
         token: p.verificationData.serverVerificationData,
       );
     } on ApiException catch (e) {
-      if (e.statusCode == 503) {
+      if (e.statusCode == 400) {
+        await _abandonRejected(p);
+      } else if (e.statusCode == 503) {
         _controller.add(DonationResult.notAvailable(e.message));
-      } else {
-        _controller.add(DonationResult.failure(e.message));
+        return; // Unfinished on purpose - no verdict was reached.
       }
-      return; // Unfinished on purpose. See above.
+      _controller.add(DonationResult.failure(e.message));
+      return;
     } catch (e) {
+      // No response at all, so no verdict. Same as a 5xx.
       _controller.add(DonationResult.failure('Could not confirm your tip: $e'));
       return;
     }
 
     await _finish(p);
     if (tier != null) _controller.add(DonationResult.success(tier));
+  }
+
+  /// A receipt the store itself rejected. No retry will change that, so the
+  /// only question left is what to do with the transaction - and the right
+  /// answer is opposite on the two rails.
+  ///
+  /// Apple redelivers an unfinished transaction on every launch, indefinitely,
+  /// so leaving it is a loop that replays the same rejection for the life of
+  /// the install. It has to be finished; there is no client-side refund to
+  /// withhold, and the user can dispute the charge with Apple.
+  ///
+  /// Google does the reverse: an unconsumed purchase is revoked and refunded
+  /// after three days, which is exactly right for a receipt that did not check
+  /// out - so it is deliberately left alone. That also covers the one case the
+  /// server cannot yet distinguish: a PENDING Google purchase (a slow card, a
+  /// cash payment) answers 400 like a rejection does, and finishing it here
+  /// would throw away a purchase that may still complete. Doing nothing is
+  /// safe for both readings.
+  Future<void> _abandonRejected(PurchaseDetails p) async {
+    if (_isGooglePlay) return;
+    if (p.pendingCompletePurchase) {
+      try {
+        await _iap.completePurchase(p);
+      } catch (_) {
+        // Already gone from the queue; nothing left to finish.
+      }
+    }
   }
 
   /// Tells the store the transaction is done.
@@ -206,7 +248,7 @@ class DonationGateway {
   /// owned, so the user could never tip the same amount twice. Consuming does
   /// both. On Apple platforms finishing the transaction is all there is.
   Future<void> _finish(PurchaseDetails p) async {
-    if (!kIsWeb && Platform.isAndroid) {
+    if (_isGooglePlay) {
       try {
         final addition =
             InAppPurchasePlatformAddition.instance! as InAppPurchaseAndroidPlatformAddition;

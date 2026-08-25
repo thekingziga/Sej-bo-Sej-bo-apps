@@ -362,7 +362,31 @@ Body `{"product_id": "...", "token": "..."}`. The app sends the store receipt
 here after a purchase. Verify server-side — Apple's App Store Server API,
 Google's Play Developer API — then record the donation. **Never trust the client
 that a purchase happened**; a receipt is only meaningful once the store confirms
-it. Return `200` on success, `400` on an invalid receipt.
+it.
+
+**The status code is the contract, and the app branches on it.** As of the
+1.16.2 client:
+
+| Status | Meaning | What the app does |
+| --- | --- | --- |
+| `200` | Verified and recorded | Finishes the transaction |
+| `400` | The store looked at the receipt and **rejected** it. Final - the same token gets the same answer for ever | Apple: finishes it, or StoreKit redelivers the rejection on every launch for ever. Google: leaves it, so Play revokes and refunds after three days |
+| any `5xx` | **No verdict was reached** - store unreachable, rate-limited, credentials lapsed, or verification not configured | Leaves it unfinished and retries on the next launch. Never refunds |
+
+Do not return `400` for anything except the store's own rejection. A `400` for
+a server-side problem refunds a real tip; a `5xx` for a rejection retries a dead
+receipt until the store revokes it.
+
+**Open item on the site side:** a Google purchase in the PENDING state
+(`purchaseState` 2 - slow card, cash payment) currently answers `400`, the same
+as a rejection. The app cannot reach that case - a purchase the plugin reports
+as `PurchaseStatus.pending` is never sent for verification, and there is a test
+that keeps it that way - and the Google `400` branch deliberately does nothing,
+so even if one arrived it would not be discarded. Still worth returning `5xx`
+for PENDING so the app retries instead.
+
+Duplicate tokens must stay idempotent: the app replays unfinished purchases on
+every launch, so the same token arrives more than once by design.
 
 Product IDs the app already uses:
 

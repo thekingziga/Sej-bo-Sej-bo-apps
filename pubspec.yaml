@@ -40,6 +40,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # Lets a test stand in for Play/StoreKit, so the branch that decides
+  # whether real money is finished or refunded can actually be exercised.
+  plugin_platform_interface: ^2.1.8
   flutter_launcher_icons: ^0.14.1
 
 flutter:

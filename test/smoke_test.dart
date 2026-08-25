@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase_platform_interface/in_app_purchase_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -764,6 +767,99 @@ void main() {
         () => build(200, '{}').createStripeCheckout(tierId: 'small'),
         throwsA(isA<ApiException>()),
       );
+    });
+  });
+
+
+  group('a rejected receipt is not a transient failure', () {
+    late _FakeIap store;
+    late List<String> verified;
+
+    /// Builds a gateway on the chosen rail whose server answers [status].
+    DonationGateway gateway({required bool google, required int status}) {
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient((req) async {
+          verified.add(req.url.path);
+          return http.Response(status == 200 ? '{}' : '{"error":"nope"}', status);
+        }),
+      );
+      final g = DonationGateway(api, isGooglePlay: google);
+      addTearDown(g.dispose);
+      return g;
+    }
+
+    setUp(() {
+      // Nothing registers a real store implementation for this platform, which
+      // is what leaves InAppPurchasePlatform.instance ours to set.
+      debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
+      store = _FakeIap();
+      InAppPurchasePlatform.instance = store;
+      verified = <String>[];
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        return store.close();
+      });
+    });
+
+    /// Lets the purchase stream and the HTTP round trip settle.
+    Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 20));
+
+    test('Apple finishes a 400, or StoreKit replays it for ever', () async {
+      final g = gateway(google: false, status: 400);
+      await g.init();
+      store.deliver([_purchase('p1')]);
+      await settle();
+
+      // Verified once, and the transaction is off the queue. An unfinished
+      // StoreKit transaction is redelivered on every launch for the life of
+      // the install, so leaving a permanent rejection would loop for ever.
+      expect(verified, ['/api/v1/donations/apple/verify']);
+      expect(store.finished, ['p1']);
+    });
+
+    test('Google leaves a 400 alone, so Play can revoke and refund it',
+        () async {
+      final g = gateway(google: true, status: 400);
+      await g.init();
+      store.deliver([_purchase('p2')]);
+      await settle();
+
+      // Not finishing is what lets Play revoke it after three days. It also
+      // covers the case the server cannot yet tell apart: a PENDING purchase
+      // answers 400 too, and finishing would throw away money still in flight.
+      expect(verified, ['/api/v1/donations/google/verify']);
+      expect(store.finished, isEmpty);
+    });
+
+    // One test per rail, not a loop: two gateways listening to the same
+    // broadcast stream both pick up the next delivery, which quietly doubled
+    // the request count when this was written as a loop.
+    for (final google in [true, false]) {
+      final rail = google ? 'Google' : 'Apple';
+      test('a 5xx finishes nothing on $rail - no verdict was reached', () async {
+        final g = gateway(google: google, status: 500);
+        await g.init();
+        store.deliver([_purchase('p3')]);
+        await settle();
+
+        expect(verified, hasLength(1));
+        expect(store.finished, isEmpty);
+      });
+    }
+
+    test('a pending purchase is never sent for verification at all', () async {
+      // The server answers 400 to a PENDING Google purchase, same as to a
+      // rejection. That gap is unreachable from here: a pending purchase never
+      // reaches the verify call, so there is no 400 to misread.
+      final g = gateway(google: true, status: 400);
+      await g.init();
+      store.deliver([_purchase('p4', status: PurchaseStatus.pending)]);
+      await settle();
+
+      expect(verified, isEmpty);
+      expect(store.finished, isEmpty);
     });
   });
 
@@ -1669,3 +1765,53 @@ class _FakeStore implements StoreUpdates {
     return accepts;
   }
 }
+
+
+/// Stands in for Play / StoreKit so the branch that decides whether real money
+/// is finished or left to refund can be exercised on a test host.
+class _FakeIap extends Fake with MockPlatformInterfaceMixin implements InAppPurchasePlatform {
+  final _purchases = StreamController<List<PurchaseDetails>>.broadcast();
+
+  /// Every transaction the gateway told the store it was done with.
+  final finished = <String>[];
+
+  void deliver(List<PurchaseDetails> p) => _purchases.add(p);
+  Future<void> close() => _purchases.close();
+
+  @override
+  Stream<List<PurchaseDetails>> get purchaseStream => _purchases.stream;
+
+  @override
+  Future<bool> isAvailable() async => true;
+
+  @override
+  Future<ProductDetailsResponse> queryProductDetails(Set<String> ids) async =>
+      ProductDetailsResponse(productDetails: const [], notFoundIDs: ids.toList());
+
+  @override
+  Future<void> completePurchase(PurchaseDetails purchase) async {
+    finished.add(purchase.purchaseID ?? purchase.productID);
+  }
+
+  @override
+  Future<void> restorePurchases({String? applicationUserName}) async {}
+
+  @override
+  Future<String> countryCode() async => 'SI';
+}
+
+PurchaseDetails _purchase(
+  String id, {
+  PurchaseStatus status = PurchaseStatus.purchased,
+}) =>
+    PurchaseDetails(
+      purchaseID: id,
+      productID: 'fyi.sejbosejbo.tip.medium',
+      verificationData: PurchaseVerificationData(
+        localVerificationData: 'local',
+        serverVerificationData: 'tok_$id',
+        source: 'test',
+      ),
+      transactionDate: '0',
+      status: status,
+    )..pendingCompletePurchase = true;
