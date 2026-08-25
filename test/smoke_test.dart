@@ -989,6 +989,168 @@ void main() {
     });
   });
 
+  group('media uploads', () {
+    late List<http.BaseRequest> sent;
+
+    Api build({int status = 201, String body = '', Map<String, String>? headers}) {
+      sent = [];
+      return Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient.streaming((req, bytes) async {
+          sent.add(req);
+          // Drain the body before answering, as a real client does. Replying
+          // early would cut the upload short and make progress look complete
+          // when it never was.
+          await bytes.toBytes();
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(body.isEmpty
+                ? jsonEncode({'id': 1, 'title': 't', 'kind': 'video', 'created_at': ''})
+                : body)),
+            status,
+            headers: headers ?? const {},
+          );
+        }),
+      );
+    }
+
+    Uint8List file(List<int> magic, {int pad = 64}) =>
+        Uint8List.fromList([...magic, ...List.filled(pad, 0)]);
+
+    Future<String> typeFor(List<int> magic) async {
+      final api = build();
+      await api.createPost(title: 't', description: '', mediaBytes: file(magic));
+      return (sent.single as http.MultipartRequest).files.single.contentType.toString();
+    }
+
+    test('sniffs video containers by brand, not extension', () async {
+      // mp4, mov and m4a share "ftyp" at offset 4 and differ only by brand -
+      // getting this wrong sends a video as audio and earns a 415.
+      expect(await typeFor([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D]),
+          'video/mp4');
+      expect(await typeFor([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20]),
+          'video/quicktime');
+      expect(await typeFor([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x4D, 0x34, 0x41, 0x20]),
+          'audio/mp4');
+    });
+
+    test('sniffs the other audio and video types', () async {
+      expect(await typeFor([0x1A, 0x45, 0xDF, 0xA3]), 'video/webm');
+      expect(await typeFor([0x4F, 0x67, 0x67, 0x53]), 'audio/ogg');
+      expect(await typeFor([0x49, 0x44, 0x33]), 'audio/mpeg');
+      expect(await typeFor([0xFF, 0xFB]), 'audio/mpeg');
+    });
+
+    test('RIFF is disambiguated by its form type', () async {
+      // WEBP and WAV both start "RIFF"; only byte 8 onwards separates them, and
+      // reading it wrong uploads a sound file labelled as a picture.
+      final webp = [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50];
+      final wav = [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45];
+      expect(await typeFor(webp), 'image/webp');
+      expect(await typeFor(wav), 'audio/wav');
+    });
+
+    test('images still sniff exactly as before', () async {
+      expect(await typeFor([0xFF, 0xD8, 0xFF]), 'image/jpeg');
+      expect(await typeFor([0x89, 0x50, 0x4E, 0x47]), 'image/png');
+      expect(await typeFor([0x47, 0x49, 0x46, 0x38]), 'image/gif');
+    });
+
+    test('never sends application/octet-stream', () async {
+      // The original upload bug: package:http defaults every part to
+      // octet-stream and the server rejects it outright.
+      for (final magic in [
+        [0xFF, 0xD8, 0xFF],
+        [0x1A, 0x45, 0xDF, 0xA3],
+        [0x4F, 0x67, 0x67, 0x53],
+      ]) {
+        expect(await typeFor(magic), isNot(contains('octet-stream')));
+      }
+    });
+
+    test('an oversized file is refused before anything is uploaded', () async {
+      // Pushing 500MB up a phone connection only to be told it was too big is
+      // the worst possible way to find out.
+      final api = build();
+      await expectLater(
+        () => api.createPost(
+          title: 't',
+          description: '',
+          mediaBytes: file([0xFF, 0xD8, 0xFF], pad: Api.maxImageBytes + 1),
+        ),
+        throwsA(isA<ApiException>()
+            .having((e) => e.statusCode, 'status', 413)
+            .having((e) => e.message, 'message', contains('100MB'))),
+      );
+      expect(sent, isEmpty, reason: 'nothing should have left the device');
+    });
+
+    test('the ceiling is per type - video gets 500MB, not 100MB', () async {
+      expect(Api.maxImageBytes, 100 * 1024 * 1024);
+      expect(Api.maxAudioVideoBytes, 500 * 1024 * 1024);
+
+      // A 200MB video is fine where a 200MB image would not be.
+      final api = build();
+      final webm = [0x1A, 0x45, 0xDF, 0xA3];
+      await api.createPost(
+        title: 't',
+        description: '',
+        mediaBytes: file(webm, pad: 120 * 1024 * 1024),
+      );
+      expect(sent, hasLength(1));
+    });
+
+    test('progress reports bytes sent and ends at the total', () async {
+      final api = build();
+      final seen = <(int, int)>[];
+      await api.createPost(
+        title: 't',
+        description: '',
+        mediaBytes: file([0xFF, 0xD8, 0xFF], pad: 400000),
+        onProgress: (s, t) => seen.add((s, t)),
+      );
+
+      expect(seen, isNotEmpty, reason: 'an upload with no visible movement looks hung');
+      final total = seen.last.$2;
+      expect(seen.last.$1, total, reason: 'the last report must reach 100%');
+      expect(seen.map((e) => e.$1).toList(), orderedEquals(seen.map((e) => e.$1).toList()..sort()));
+    });
+
+    test('lang travels so 413 and 415 come back translated', () async {
+      final api = build();
+      await api.createPost(title: 't', description: 'x', lang: 'sl');
+      expect(sent.single.url.queryParameters['lang'], 'sl');
+    });
+
+    test('413, 415 and 429 surface the server wording verbatim', () async {
+      for (final (status, message) in [
+        (413, 'Datoteka je 620MB, največ pa je 500MB.'),
+        (415, 'Ta vrsta datoteke ni sprejeta.'),
+        (429, 'Preveč nalaganj. Poskusi znova čez minuto.'),
+      ]) {
+        final api = build(status: status, body: jsonEncode({'error': message}));
+        await expectLater(
+          () => api.createPost(title: 't', description: 'x'),
+          throwsA(isA<ApiException>()
+              .having((e) => e.statusCode, 'status', status)
+              .having((e) => e.message, 'message', message)),
+        );
+      }
+    });
+
+    test('a 429 on upload carries the wait', () async {
+      final api = build(
+        status: 429,
+        body: jsonEncode({'error': 'slow down', 'retry_after_seconds': 240}),
+      );
+      await expectLater(
+        () => api.createPost(title: 't', description: 'x'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 240))),
+      );
+    });
+  });
+
   group('donation tiers', () {
     test('prices are whole euros in minor units', () {
       expect(kDonationTiers.map((t) => t.amountMinor), [200, 500, 1500]);
@@ -1035,8 +1197,8 @@ void _uploadContentTypeTests() {
       await api.createPost(
         title: 't',
         description: '',
-        imageBytes: Uint8List.fromList([...magic, ...List.filled(32, 0)]),
-        imageName: 'whatever.bin',
+        mediaBytes: Uint8List.fromList([...magic, ...List.filled(32, 0)]),
+        mediaName: 'whatever.bin',
       );
       final f = (sent.last as http.MultipartRequest).files.single;
       return f.contentType.toString();

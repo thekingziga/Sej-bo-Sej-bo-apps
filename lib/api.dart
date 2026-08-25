@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File;
 
@@ -474,14 +475,29 @@ class Api {
     return (j['phrase'] ?? '') as String;
   }
 
-  /// Multipart upload. [imagePath] is a local file path; null means text-only.
-  /// On web, pass [imageBytes] + [imageName] instead.
+  /// What the server accepts, per kind. Checked before a byte leaves the
+  /// device: discovering a 413 after pushing 500MB up a phone connection is a
+  /// uniquely miserable way to learn a file is too big.
+  static const maxImageBytes = 100 * 1024 * 1024;
+  static const maxAudioVideoBytes = 500 * 1024 * 1024;
+
+  /// Multipart upload. [mediaPath] is a local file path; null means text-only.
+  /// On web, pass [mediaBytes] + [mediaName] instead.
+  ///
+  /// The wire field is still called `image` for every kind - that is the
+  /// server's name for it, not a claim about the contents.
+  ///
+  /// [onProgress] receives bytes sent and the total. A 500MB video takes
+  /// minutes on mobile data, and an upload with no visible movement is
+  /// indistinguishable from a hung one.
   Future<Post> createPost({
     required String title,
     required String description,
-    String? imagePath,
-    Uint8List? imageBytes,
-    String? imageName,
+    String? mediaPath,
+    Uint8List? mediaBytes,
+    String? mediaName,
+    String lang = 'en',
+    void Function(int sent, int total)? onProgress,
   }) async {
     if (_demo) {
       await Future<void>.delayed(const Duration(milliseconds: 700));
@@ -491,35 +507,50 @@ class Api {
       );
     }
 
-    final req = http.MultipartRequest('POST', _uri('/posts'))
+    // lang so the server's own 413/415 wording comes back in the user's
+    // language - those messages are shown verbatim.
+    final req = http.MultipartRequest('POST', _uri('/posts', {'lang': lang}))
       ..fields['title'] = title
       ..fields['description'] = description;
 
     // The content type must be set explicitly. package:http defaults every
-    // multipart file to application/octet-stream, and the server's filter only
-    // accepts image/jpeg|png|gif|webp - so uploads were rejected with "Only
-    // images and GIFs are allowed" no matter what the user actually picked.
-    if (imageBytes != null) {
+    // multipart file to application/octet-stream, which the server's filter
+    // rejects outright - that bug made every upload fail regardless of file.
+    MediaType? type;
+    int size = 0;
+
+    if (mediaBytes != null) {
+      type = _sniffMediaType(mediaBytes);
+      size = mediaBytes.length;
       req.files.add(
         http.MultipartFile.fromBytes(
           'image',
-          imageBytes,
-          filename: imageName ?? 'upload.jpg',
-          contentType: _sniffImageType(imageBytes),
+          mediaBytes,
+          filename: mediaName ?? 'upload.jpg',
+          contentType: type,
         ),
       );
-    } else if (imagePath != null && !kIsWeb) {
-      final file = File(imagePath);
-      // Sniff the magic bytes rather than trusting the extension: the picker
-      // can hand back .jpg for a file that is actually a PNG or HEIC-converted.
+    } else if (mediaPath != null && !kIsWeb) {
+      final file = File(mediaPath);
+      // Sniff the magic bytes rather than trusting the extension: a picker can
+      // hand back .jpg for a PNG, and the server re-encodes video overnight so
+      // an extension is never the contract.
       final head = await file.openRead(0, 16).expand((c) => c).toList();
+      type = _sniffMediaType(Uint8List.fromList(head));
+      size = await file.length();
       req.files.add(
-        await http.MultipartFile.fromPath(
-          'image',
-          file.path,
-          contentType: _sniffImageType(Uint8List.fromList(head)),
-        ),
+        await http.MultipartFile.fromPath('image', file.path, contentType: type),
       );
+    }
+
+    if (type != null) {
+      final ceiling = type.type == 'image' ? maxImageBytes : maxAudioVideoBytes;
+      if (size > ceiling) {
+        throw ApiException(
+          'That file is ${_mb(size)} - the limit for ${type.type} is ${_mb(ceiling)}.',
+          statusCode: 413,
+        );
+      }
     }
 
     late http.StreamedResponse streamed;
@@ -527,21 +558,87 @@ class Api {
       // _client.send, not req.send(): BaseRequest.send() spins up its own
       // one-shot Client, which bypasses the injected client (so uploads could
       // not be tested) and discards the connection pool on every upload.
-      streamed = await _client.send(req).timeout(const Duration(seconds: 60));
-    } catch (_) {
+      streamed = await _client.send(_withProgress(req, onProgress));
+    } catch (e) {
+      if (e is ApiException) rethrow;
       throw ApiException('Upload failed. Check your connection and try again.');
     }
+
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+      // 413 names the size and the ceiling, 415 names the type, 429 the wait -
+      // all already localised, so they are shown exactly as sent.
       String msg = 'Upload rejected (${streamed.statusCode}).';
+      Duration? retryAfter;
       try {
         final j = jsonDecode(body) as Map<String, dynamic>;
         if (j['error'] is String) msg = j['error'] as String;
+        final secs = (j['retry_after_seconds'] as num?)?.toInt();
+        if (secs != null && secs > 0) retryAfter = Duration(seconds: secs);
       } catch (_) {}
-      throw ApiException(msg, statusCode: streamed.statusCode);
+      retryAfter ??= () {
+        final h = int.tryParse(streamed.headers['retry-after'] ?? '');
+        return h != null && h > 0 ? Duration(seconds: h) : null;
+      }();
+      throw ApiException(msg, statusCode: streamed.statusCode, retryAfter: retryAfter);
     }
     return Post.fromJson(jsonDecode(body) as Map<String, dynamic>);
   }
+
+  static String _mb(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(0)}MB';
+
+  /// Re-streams a finalized multipart body, counting bytes on the way past and
+  /// aborting only if the transfer *stalls*.
+  ///
+  /// A total-duration timeout is the wrong tool here: 500MB up a phone
+  /// connection legitimately takes many minutes, and killing a healthy slow
+  /// upload is worse than the hang it guards against. Silence is the real
+  /// failure signal, so the clock resets on every chunk.
+  http.BaseRequest _withProgress(
+    http.MultipartRequest req,
+    void Function(int sent, int total)? onProgress,
+  ) {
+    if (onProgress == null) return req;
+
+    final total = req.contentLength;
+    final out = http.StreamedRequest(req.method, req.url)
+      ..headers.addAll(req.headers)
+      ..contentLength = total;
+
+    var sent = 0;
+    Timer? stall;
+    void resetStall() {
+      stall?.cancel();
+      stall = Timer(_uploadStall, () {
+        out.sink.addError(ApiException('Upload stalled. Check your connection.'));
+        out.sink.close();
+      });
+    }
+
+    resetStall();
+    req.finalize().listen(
+      (chunk) {
+        sent += chunk.length;
+        onProgress(sent, total);
+        resetStall();
+        out.sink.add(chunk);
+      },
+      onError: (Object e) {
+        stall?.cancel();
+        out.sink.addError(e);
+        out.sink.close();
+      },
+      onDone: () {
+        stall?.cancel();
+        out.sink.close();
+      },
+      cancelOnError: true,
+    );
+    return out;
+  }
+
+  /// No progress for this long means the connection is gone, not slow.
+  static const _uploadStall = Duration(seconds: 60);
 
   /// Asks the server for a Stripe Checkout URL. Desktop donation path.
   Future<String> createStripeCheckout({required String tierId}) async {
@@ -633,30 +730,58 @@ class Api {
     }
   }
 
-  /// Identifies an image from its magic bytes. Falls back to JPEG, which is
-  /// what phone cameras produce and what the server accepts most often - but
-  /// the sniff should succeed for anything the picker or clipboard hands over.
-  static MediaType _sniffImageType(Uint8List b) {
-    bool starts(List<int> sig) {
-      if (b.length < sig.length) return false;
+  /// Identifies a file from its magic bytes.
+  ///
+  /// Never from the extension: a picker hands back .jpg for PNGs, and the
+  /// server re-encodes large video overnight, so the extension can change
+  /// while the post's kind does not.
+  static MediaType _sniffMediaType(Uint8List b) {
+    bool at(int offset, List<int> sig) {
+      if (b.length < offset + sig.length) return false;
       for (var i = 0; i < sig.length; i++) {
-        if (b[i] != sig[i]) return false;
+        if (b[offset + i] != sig[i]) return false;
       }
       return true;
     }
 
+    bool starts(List<int> sig) => at(0, sig);
+
+    // --- images
     if (starts([0x89, 0x50, 0x4E, 0x47])) return MediaType('image', 'png');
     if (starts([0x47, 0x49, 0x46, 0x38])) return MediaType('image', 'gif');
     if (starts([0xFF, 0xD8, 0xFF])) return MediaType('image', 'jpeg');
-    // WEBP is "RIFF" .... "WEBP" at offset 8.
-    if (starts([0x52, 0x49, 0x46, 0x46]) &&
-        b.length >= 12 &&
-        b[8] == 0x57 &&
-        b[9] == 0x45 &&
-        b[10] == 0x42 &&
-        b[11] == 0x50) {
-      return MediaType('image', 'webp');
+
+    // --- RIFF containers: WEBP and WAV share the first four bytes, so the
+    // form type at offset 8 is what actually distinguishes them.
+    if (starts([0x52, 0x49, 0x46, 0x46])) {
+      if (at(8, [0x57, 0x45, 0x42, 0x50])) return MediaType('image', 'webp');
+      if (at(8, [0x57, 0x41, 0x56, 0x45])) return MediaType('audio', 'wav');
     }
+
+    // --- ISO base media: mp4, mov and m4a all carry "ftyp" at offset 4 and
+    // differ only by the brand that follows, so the brand decides whether this
+    // is a video or an audio post.
+    if (at(4, [0x66, 0x74, 0x79, 0x70])) {
+      if (at(8, [0x4D, 0x34, 0x41])) return MediaType('audio', 'mp4'); // M4A
+      if (at(8, [0x71, 0x74, 0x20, 0x20])) return MediaType('video', 'quicktime'); // qt
+      return MediaType('video', 'mp4');
+    }
+
+    // --- Matroska / WebM. The same container carries audio-only files, but
+    // video/webm is the safe read: the server accepts both and a player can
+    // handle a video stream that happens to have no picture.
+    if (starts([0x1A, 0x45, 0xDF, 0xA3])) return MediaType('video', 'webm');
+
+    // --- other audio
+    if (starts([0x4F, 0x67, 0x67, 0x53])) return MediaType('audio', 'ogg');
+    if (starts([0x49, 0x44, 0x33])) return MediaType('audio', 'mpeg'); // ID3-tagged mp3
+    if (b.length >= 2 && b[0] == 0xFF && (b[1] & 0xE0) == 0xE0) {
+      return MediaType('audio', 'mpeg'); // bare mp3 frame sync
+    }
+
+    // Falls back to JPEG, which is what phone cameras produce and what the
+    // overwhelming majority of uploads are. A genuine miss earns a 415 naming
+    // the type, which is a clearer failure than guessing wider.
     return MediaType('image', 'jpeg');
   }
 

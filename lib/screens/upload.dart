@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
+import 'package:file_selector/file_selector.dart' as fs;
 import 'package:image_picker/image_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
 
@@ -31,6 +32,16 @@ class _UploadScreenState extends State<UploadScreen> {
   bool _sending = false;
   String? _error;
 
+  /// An audio or video pick. Kept apart from [_preview] because there is no
+  /// image to show for it, and because a 500MB video must never be read into
+  /// memory just to draw a thumbnail - only its path is held.
+  _PickedMedia? _media;
+
+  /// Bytes sent so far and the total, while an upload is in flight. A 500MB
+  /// file takes minutes on mobile data, and an upload with no visible movement
+  /// is indistinguishable from a hung one.
+  double? _progress;
+
   @override
   void dispose() {
     _title.dispose();
@@ -41,7 +52,8 @@ class _UploadScreenState extends State<UploadScreen> {
   /// Keyed off [_preview], not [_picked]: a pasted image has bytes but no XFile,
   /// so checking _picked would silently refuse to submit clipboard images.
   bool get _valid =>
-      _title.text.trim().isNotEmpty && (_story.text.trim().isNotEmpty || _preview != null);
+      _title.text.trim().isNotEmpty &&
+      (_story.text.trim().isNotEmpty || _preview != null || _media != null);
 
   Future<void> _pick(ImageSource source) async {
     try {
@@ -52,10 +64,39 @@ class _UploadScreenState extends State<UploadScreen> {
       setState(() {
         _picked = file;
         _preview = bytes;
+        _media = null; // one file per post
         _error = null;
       });
     } catch (e) {
       if (mounted) setState(() => _error = 'Could not open that image.');
+    }
+  }
+
+  /// Picks an audio or video file. Deliberately reads only the size, never the
+  /// contents: createPost streams from the path.
+  Future<void> _pickMedia() async {
+    try {
+      final file = await fs.openFile(
+        acceptedTypeGroups: const [
+          fs.XTypeGroup(
+            label: 'Audio & video',
+            extensions: ['mp3', 'm4a', 'ogg', 'wav', 'weba', 'mp4', 'webm', 'mov'],
+            mimeTypes: ['audio/*', 'video/*'],
+            uniformTypeIdentifiers: ['public.audio', 'public.movie'],
+          ),
+        ],
+      );
+      if (file == null) return;
+      final size = await file.length();
+      if (!mounted) return;
+      setState(() {
+        _media = _PickedMedia(path: file.path, name: file.name, bytes: size);
+        _picked = null;
+        _preview = null;
+        _error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Could not open that file.');
     }
   }
 
@@ -137,15 +178,21 @@ class _UploadScreenState extends State<UploadScreen> {
     });
 
     try {
-      // Send raw bytes on web, and whenever the image came from the clipboard
-      // (no file on disk to point at). Otherwise stream the picked file.
-      final useBytes = kIsWeb || _picked == null;
+      final media = _media;
+      // Bytes only for clipboard images and on web. Everything else streams
+      // from a path - reading a 500MB video into memory to upload it would
+      // take the app out with it.
+      final useBytes = media == null && (kIsWeb || _picked == null);
       final post = await widget.api.createPost(
         title: _title.text.trim(),
         description: _story.text.trim(),
-        imagePath: useBytes ? null : _picked!.path,
-        imageBytes: useBytes ? _preview : null,
-        imageName: _picked?.name ?? 'pasted.png',
+        mediaPath: media?.path ?? (useBytes ? null : _picked!.path),
+        mediaBytes: useBytes ? _preview : null,
+        mediaName: media?.name ?? _picked?.name ?? 'pasted.png',
+        lang: L10n.of(context).code,
+        onProgress: (sent, total) {
+          if (mounted && total > 0) setState(() => _progress = sent / total);
+        },
       );
       if (!mounted) return;
       setState(() {
@@ -153,6 +200,7 @@ class _UploadScreenState extends State<UploadScreen> {
         _story.clear();
         _picked = null;
         _preview = null;
+        _media = null;
       });
       await Navigator.of(
         context,
@@ -160,7 +208,12 @@ class _UploadScreenState extends State<UploadScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _progress = null;
+        });
+      }
     }
   }
 
@@ -194,9 +247,12 @@ class _UploadScreenState extends State<UploadScreen> {
                   onGallery: () => _pick(ImageSource.gallery),
                   onPaste: _pasteFromClipboard,
                   onEdit: _edit,
+                  media: _media,
+                  onFile: _pickMedia,
                   onClear: () => setState(() {
                     _picked = null;
                     _preview = null;
+                    _media = null;
                   }),
                 ),
                 const SizedBox(height: 22),
@@ -242,13 +298,43 @@ class _UploadScreenState extends State<UploadScreen> {
                   onPressed: _valid && !_sending ? _submit : null,
                   padding: const EdgeInsets.symmetric(vertical: 20),
                   child: _sending
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 3, color: Brutal.ink),
+                      // Percentage, not a spinner. A 500MB video is minutes of
+                      // work, and a spinner that never moves is how a user
+                      // decides the app has hung and kills it mid-upload.
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 3,
+                                color: Brutal.ink,
+                                value: _progress,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              _progress == null
+                                  ? t['uploading']
+                                  : '${t['uploading']} ${(_progress! * 100).round()}%',
+                              style: const TextStyle(fontSize: 15),
+                            ),
+                          ],
                         )
                       : Text(t['submitButton'], style: const TextStyle(fontSize: 17)),
                 ),
+                if (_sending && _media != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    t['uploadSlow'],
+                    textAlign: TextAlign.center,
+                    style: Brutal.body.copyWith(
+                      fontSize: 12,
+                      color: Brutal.ink.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -267,9 +353,17 @@ class _PickerZone extends StatelessWidget {
     required this.onPaste,
     required this.onEdit,
     required this.onClear,
+    required this.media,
+    required this.onFile,
   });
 
   final Uint8List? preview;
+
+  /// An audio or video pick, shown as a chip rather than a thumbnail - there
+  /// is nothing to draw, and decoding a 500MB file for a preview is not worth
+  /// the memory.
+  final _PickedMedia? media;
+  final VoidCallback onFile;
   final bool showCamera;
   final VoidCallback onCamera;
   final VoidCallback onGallery;
@@ -280,6 +374,61 @@ class _PickerZone extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = L10n.of(context);
+
+    final picked = media;
+    if (picked != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          BrutalBox(
+            color: Brutal.cyan,
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.movie_creation_outlined, size: 26),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        picked.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Brutal.heading.copyWith(fontSize: 15),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(picked.sizeLabel, style: Brutal.body.copyWith(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              BrutalButton(
+                color: Brutal.cyan,
+                onPressed: onFile,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Text(t['change']),
+              ),
+              BrutalButton(
+                color: Brutal.danger,
+                onPressed: onClear,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Text(t['remove']),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
     if (preview != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,6 +528,12 @@ class _PickerZone extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                   child: Text(t['paste']),
                 ),
+                BrutalButton(
+                  color: Brutal.pink,
+                  onPressed: onFile,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  child: Text(t['file']),
+                ),
               ],
             ),
           ],
@@ -461,5 +616,21 @@ class _Field extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+
+/// An audio or video pick: path and size only, never contents.
+class _PickedMedia {
+  const _PickedMedia({required this.path, required this.name, required this.bytes});
+
+  final String path;
+  final String name;
+  final int bytes;
+
+  String get sizeLabel {
+    const mb = 1024 * 1024;
+    if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(1)} MB';
+    return '${(bytes / 1024).toStringAsFixed(0)} KB';
   }
 }

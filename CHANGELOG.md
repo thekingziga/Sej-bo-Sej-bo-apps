@@ -9,6 +9,49 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.16.0+20
+
+Uploading audio and video, the piece left out of 1.15.0.
+
+**Added**
+- **An AUDIO / VIDEO button on the upload screen**, alongside camera, library
+  and paste. Picks mp3, m4a, ogg, wav, weba, mp4, webm and mov.
+- **Real progress while uploading** - a percentage, not a spinner. A 500MB
+  video is minutes of work on mobile data, and a spinner that never moves is
+  how someone decides the app has hung and kills it mid-transfer. Submit stays
+  disabled throughout.
+- **Magic-byte sniffing extended to audio and video.** Two cases needed care:
+  mp4, mov and m4a all carry `ftyp` at offset 4 and differ only by the brand
+  after it, so an m4a would otherwise upload as video; and WEBP and WAV share
+  the first four bytes `RIFF`, separated only at offset 8, so a sound file
+  could go up labelled as a picture.
+
+**Changed**
+- **Size is checked before anything is sent**, against the ceiling for that
+  type - 100MB image, 500MB audio and video. Pushing half a gigabyte up a phone
+  connection only to be told it was too big is the worst way to learn it.
+- **The upload timeout is now a stall timeout.** The old 60-second overall
+  limit would have killed any large upload on principle; 500MB legitimately
+  takes many minutes. The clock now resets on every chunk, so only genuine
+  silence aborts.
+- `lang` travels with the upload, so the server's 413, 415 and 429 wording
+  comes back in the user's language and is shown verbatim.
+- Video and audio stream from disk, never through memory. `imagePath` and
+  friends are now `mediaPath` - the wire field is still `image`, which is the
+  server's name for it, not a claim about the contents.
+
+**Proof**
+- Both guards mutation-tested: collapsing the per-type ceiling to one value,
+  and dropping the m4a brand check, each turn the suite red. 112 tests, up
+  from 101.
+
+```
+You can now post audio and video, not just photos. Uploads show a percentage
+as they go, since a big video takes a while.
+```
+
+---
+
 ## 1.15.0+19
 
 Video and audio posts now play in the app.
