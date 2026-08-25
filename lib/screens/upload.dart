@@ -49,6 +49,15 @@ class _UploadScreenState extends State<UploadScreen> {
     super.dispose();
   }
 
+  /// Typing anything clears a previous failure.
+  ///
+  /// The error box holds the server's own words - "Add a title and either an
+  /// image/GIF or a story." - and picking a file cleared it, but typing did
+  /// not. So a rejected submit left its complaint on screen while the user
+  /// fixed exactly what it complained about, which reads as the app refusing
+  /// input it has already accepted.
+  void _onEdited() => setState(() => _error = null);
+
   /// Keyed off [_preview], not [_picked]: a pasted image has bytes but no XFile,
   /// so checking _picked would silently refuse to submit clipboard images.
   bool get _valid =>
@@ -261,7 +270,7 @@ class _UploadScreenState extends State<UploadScreen> {
                   hint: t['hintTitle'],
                   controller: _title,
                   maxLength: 120,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) => _onEdited(),
                 ),
                 const SizedBox(height: 18),
                 _Field(
@@ -270,7 +279,7 @@ class _UploadScreenState extends State<UploadScreen> {
                   controller: _story,
                   maxLength: 1200,
                   maxLines: 5,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) => _onEdited(),
                 ),
                 const SizedBox(height: 12),
                 if (!_valid)

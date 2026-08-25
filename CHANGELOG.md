@@ -9,6 +9,23 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.16.1+21
+
+**Fixed**
+- **A rejected upload kept complaining after you fixed it.** The error box
+  holds the server's own words - "Add a title and either an image/GIF or a
+  story." - and it was cleared when you picked a file or pressed submit, but
+  never when you typed. So a failed attempt left its complaint on screen while
+  you supplied exactly what it asked for, which reads as the app refusing input
+  it has already accepted. Editing either field now retracts it.
+
+```
+Fixed an error message that stayed on the upload screen after you had already
+fixed the problem.
+```
+
+---
+
 ## 1.16.0+20
 
 Uploading audio and video, the piece left out of 1.15.0.

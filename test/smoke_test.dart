@@ -15,6 +15,7 @@ import 'package:sejbosejbo/models.dart';
 import 'package:sejbosejbo/music.dart';
 import 'package:sejbosejbo/prefs.dart';
 import 'package:sejbosejbo/screens/detail.dart';
+import 'package:sejbosejbo/screens/upload.dart';
 import 'package:sejbosejbo/theme.dart';
 import 'package:sejbosejbo/store_update.dart';
 import 'package:sejbosejbo/update_gate.dart';
@@ -210,6 +211,65 @@ void main() {
     // An unrecognised kind still says so rather than pretending.
     await pumpCard('something-invented-later', 'https://sejbosejbo.fyi/uploads/a.bin');
     expect(find.text('SOMETHING-INVENTED-LATER'), findsOneWidget);
+  });
+
+  testWidgets('a rejected upload stops complaining once you fix the form', (tester) async {
+    // Regression: the box holds the server's own 400 wording. Picking a file
+    // cleared it but typing did not, so the complaint stayed on screen while
+    // the user fixed the very thing it was complaining about.
+    tester.view.physicalSize = const Size(414, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    const serverSaid = 'Add a title and either an image/GIF or a story.';
+    final api = Api(
+      baseUrl: 'https://example.test',
+      useDemoData: false,
+      client: MockClient.streaming((req, bytes) async {
+        await bytes.toBytes();
+        return http.StreamedResponse(
+          Stream.value(utf8.encode(jsonEncode({'error': serverSaid}))),
+          400,
+        );
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.en,
+        onChange: (_) {},
+        child: MaterialApp(
+          theme: Brutal.theme(),
+          home: Scaffold(body: UploadScreen(api: api)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // Client-valid - title plus a story - so submit actually fires. The server
+    // rejects it anyway, which is the case that leaves a message behind:
+    // a 413, a 415, or a rate limit all land here too.
+    await tester.enterText(find.byType(TextField).first, 'VIDEO SEJBOSEJBO IS ONLINE');
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).last, 'first attempt');
+    await tester.pump();
+    final submit = find.text('SUBMIT THIS SEJBOSEJBO');
+    await tester.ensureVisible(submit);
+    await tester.pump();
+    await tester.tap(submit);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+
+    expect(find.text(serverSaid), findsOneWidget, reason: 'the failure should be shown');
+
+    // Editing the form must retract the complaint.
+    await tester.enterText(find.byType(TextField).last, 'a story, as requested');
+    await tester.pump();
+
+    expect(find.text(serverSaid), findsNothing,
+        reason: 'a stale rejection must not survive the user fixing it');
   });
 
   testWidgets('hall of fame is ordered by score, highest first', (tester) async {
