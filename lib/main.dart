@@ -103,7 +103,8 @@ class _SejbosejboAppState extends State<SejbosejboApp> with WidgetsBindingObserv
   /// itself, not the home screen.
   void _openPost(int id) {
     _navigatorKey.currentState?.push(
-      MaterialPageRoute(builder: (_) => PostDetailScreen.byId(api: _api, prefs: widget.prefs, id: id)),
+      MaterialPageRoute(builder: (_) =>
+          PostDetailScreen.byId(api: _api, prefs: widget.prefs, id: id, music: _music)),
     );
   }
 
@@ -207,9 +208,10 @@ class _ShellState extends State<Shell> {
           prefs: widget.prefs,
           onSeeAll: () => _go(1),
           onUpload: () => _go(2),
+          music: widget.music,
         );
       case 1:
-        return GalleryScreen(api: widget.api, prefs: widget.prefs);
+        return GalleryScreen(api: widget.api, prefs: widget.prefs, music: widget.music);
       case 2:
         return UploadScreen(api: widget.api);
       default:

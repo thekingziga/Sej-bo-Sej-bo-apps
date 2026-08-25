@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../l10n.dart';
 import '../models.dart';
+import '../music.dart';
 import '../prefs.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -17,10 +18,15 @@ class HomeScreen extends StatefulWidget {
     required this.prefs,
     required this.onSeeAll,
     required this.onUpload,
+    this.music,
   });
 
   final Api api;
   final Prefs prefs;
+
+  /// Handed to the detail screen so a video post can silence the theme music
+  /// while it plays. Null in tests.
+  final Music? music;
   final VoidCallback onSeeAll;
   final VoidCallback onUpload;
 
@@ -58,7 +64,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _open(Post p) => Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) => PostDetailScreen(post: p, api: widget.api, prefs: widget.prefs),
+      builder: (_) => PostDetailScreen(
+        post: p,
+        api: widget.api,
+        prefs: widget.prefs,
+        music: widget.music,
+      ),
     ),
   );
 

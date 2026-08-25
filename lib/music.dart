@@ -23,6 +23,11 @@ class Music {
 
   AudioPlayer? _player;
 
+  /// Held down while a post's own audio or video is playing. Distinct from the
+  /// stored preference: the user still wants music, it just must not be
+  /// audible underneath a clip they chose to play.
+  bool _suspended = false;
+
   /// True while the track should be sounding. Not the same as "the user wants
   /// music": playback is suspended while the app is in the background, and
   /// this goes false without touching the stored preference.
@@ -36,7 +41,7 @@ class Music {
   }
 
   Future<void> _play() async {
-    if (_player != null || kIsWeb) return;
+    if (_player != null || kIsWeb || _suspended) return;
     try {
       final player = AudioPlayer();
       await player.setReleaseMode(ReleaseMode.loop);
@@ -68,6 +73,23 @@ class Music {
     } else {
       await _stop();
     }
+  }
+
+  /// Silences the music for as long as something else is playing.
+  ///
+  /// Two audio streams at once is never what anyone wanted, and the theme
+  /// under someone's video is the worst version of it.
+  Future<void> suspend() async {
+    _suspended = true;
+    await _stop();
+  }
+
+  /// Gives the music back after a clip finishes, is paused, or its screen is
+  /// closed. Does nothing if the user had music off to begin with.
+  Future<void> resume() async {
+    if (!_suspended) return;
+    _suspended = false;
+    if (enabled) await _play();
   }
 
   /// Called when the app leaves or returns to the foreground.

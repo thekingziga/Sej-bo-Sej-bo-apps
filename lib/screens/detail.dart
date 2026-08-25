@@ -5,15 +5,22 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../comments.dart';
 import '../l10n.dart';
+import '../media.dart';
 import '../models.dart';
+import '../music.dart';
 import '../prefs.dart';
 import '../report.dart';
 import '../theme.dart';
 import '../widgets.dart';
 
 class PostDetailScreen extends StatefulWidget {
-  const PostDetailScreen({super.key, required this.post, this.api, this.prefs})
-    : id = null;
+  const PostDetailScreen({
+    super.key,
+    required this.post,
+    this.api,
+    this.prefs,
+    this.music,
+  }) : id = null;
 
   /// Deep-link entry point: opens on an id and fetches the post itself.
   const PostDetailScreen.byId({
@@ -21,12 +28,17 @@ class PostDetailScreen extends StatefulWidget {
     required Api this.api,
     required Prefs this.prefs,
     required int this.id,
+    this.music,
   }) : post = null;
 
   final Post? post;
   final int? id;
   final Api? api;
   final Prefs? prefs;
+
+  /// Paused while a video or audio post plays, so the theme music never runs
+  /// underneath it. Null in tests.
+  final Music? music;
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -149,6 +161,21 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
+  /// The only place a post's media is actually opened. Branches on kind, and
+  /// deliberately not on the file extension.
+  Widget _media(Post post) {
+    if (post.isVideo) return PostVideoPlayer(post: post, music: widget.music);
+    if (post.isAudio) return PostAudioPlayer(post: post, music: widget.music);
+    // Images, stories and anything unrecognised - PostMedia already renders
+    // the last as a card rather than guessing.
+    return PostMedia(
+      post: post,
+      accent: Brutal.orange,
+      compact: false,
+      fit: BoxFit.contain,
+    );
+  }
+
   Widget _body(Post post, Strings t) => ListView(
     padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
     children: [
@@ -169,17 +196,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             minHeight: 180,
             maxHeight: MediaQuery.of(context).size.height * 0.78,
           ),
-          child: PostMedia(
-            post: post,
-            accent: Brutal.orange,
-            compact: false,
-            fit: BoxFit.contain,
-          ),
+          child: _media(post),
         ),
       ),
-      // Audio and video are built server-side and ship behind a flag. An older
-      // install must not pretend it can play them - it sends the user to the
-      // website, which always can.
+      // Only for kinds this build has never heard of. Audio and video play
+      // in-app now; this is the escape hatch for whatever comes next, so an
+      // old install sends the user somewhere that can always render it.
       if (post.isUnsupported) ...[
         const SizedBox(height: 14),
         BrutalBox(

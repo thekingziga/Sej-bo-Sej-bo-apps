@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'l10n.dart';
+import 'media.dart';
 
 import 'models.dart';
 import 'theme.dart';
@@ -30,13 +31,19 @@ class PostMedia extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = post.imageUrl;
 
-    // Checked before the URL, deliberately. Audio and video posts are already
-    // built server-side and ship behind a flag; when it flips, image_url starts
-    // pointing at an .mp4 or .m4a. Falling through to Image.network there would
-    // download the whole clip over mobile data only to fail, so an unknown kind
-    // gets an honest card instead.
+    // Branch on kind, never on the URL. image_url carries whatever the post
+    // holds - .mp4, .m4a, .jpg - and the extension can change under a
+    // re-encode while the kind does not.
     if (post.isUnsupported) {
       return _Unsupported(post: post, compact: compact);
+    }
+
+    // A video can be 500MB. In a list it is a poster and nothing more: no
+    // controller, no connection, nothing fetched. Only the detail screen
+    // streams. Audio gets the same treatment for consistency, and because a
+    // grid of audio players would be unusable anyway.
+    if (post.isVideo || post.isAudio) {
+      return MediaPoster(post: post, compact: compact);
     }
 
     if (url != null && url.isNotEmpty) {
@@ -59,7 +66,7 @@ class PostMedia extends StatelessWidget {
       );
     }
 
-    if (post.kind == 'story') {
+    if (post.isStory) {
       return Container(
         color: Brutal.yellow,
         padding: EdgeInsets.all(compact ? 10 : 22),

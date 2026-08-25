@@ -9,6 +9,49 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.15.0+19
+
+Video and audio posts now play in the app.
+
+**Added**
+- **Video posts play on the detail screen** - streamed progressively, tap to
+  start, with a scrubbable progress bar. Nothing plays automatically.
+- **Audio posts get a player** built on audioplayers, already present for the
+  theme music rather than a second audio stack.
+- **The theme music steps aside** while a post plays, and comes back when it
+  finishes, is paused, or the screen closes. Two things sounding at once is
+  never what anyone wanted.
+
+**Changed**
+- Rendering branches on `kind` at both sites - list and detail - and never on
+  the file extension. A large video is re-encoded overnight and its extension
+  can change while the kind does not.
+- **A list never opens a video.** Video and audio posts show a poster in the
+  feed: no controller, no connection, nothing fetched. A video can be 500MB,
+  and a grid that eagerly opened each one would empty a data plan by being
+  scrolled. Streaming happens only on the detail screen.
+- An unrecognised kind still degrades to the "open it on the website" card, so
+  whatever the server adds next cannot break an installed build.
+
+**On the reported crash**
+- Worth recording that the app was **not** crashing on these posts. Unknown
+  kinds have been gated ahead of any image decode since 1.6.0, with a test
+  asserting an `.mp4` never reaches `Image.network`. Audio and video rendered
+  as an "open on the website" card rather than failing. This release turns that
+  fallback into real playback; it was a missing feature, not a live fault.
+
+**Not done**
+- Uploading audio and video, which the brief marked optional. The upload screen
+  still offers images only. Worth doing next, and it needs progress from bytes
+  sent and a much longer timeout before a 500MB file is survivable on mobile.
+
+```
+Video and audio posts now play right in the app. Tap a video to start it - it
+streams, so scrolling the gallery never downloads one.
+```
+
+---
+
 ## 1.14.0+18
 
 **Added**

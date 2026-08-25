@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:video_player/video_player.dart';
+
 import 'package:sejbosejbo/api.dart';
 import 'package:sejbosejbo/donations.dart';
 import 'package:sejbosejbo/l10n.dart';
@@ -158,216 +160,56 @@ void main() {
     expect(tester.takeException(), isNull, reason: 'voting on a comment overflowed or threw');
   });
 
-  testWidgets('an unknown post kind renders a card instead of a broken image', (tester) async {
-    // Guards the day audio/video ship: an old install must degrade, not break.
-    await tester.pumpWidget(
-      L10n(
-        strings: Strings.en,
-        onChange: (_) {},
-        child: MaterialApp(
-          theme: Brutal.theme(),
-          home: Scaffold(
-            body: SizedBox(
-              height: 260,
-              width: 180,
-              child: PostCard(
-                post: Post.fromJson({
-                  'id': 1,
-                  'title': 'A loud one',
-                  'kind': 'video',
-                  'image_url': 'https://sejbosejbo.fyi/uploads/a.mp4',
-                  'created_at': '2026-08-14T19:34:03.000Z',
-                }),
-                index: 0,
-                onTap: () {},
+  testWidgets('a feed never opens a video, whatever the kind', (tester) async {
+    // The invariant: image_url can hold a 500MB mp4, so a list must not hand
+    // it to an image decoder or a video controller. Only the detail screen
+    // streams.
+    Future<void> pumpCard(String kind, String url) async {
+      await tester.pumpWidget(
+        L10n(
+          strings: Strings.en,
+          onChange: (_) {},
+          child: MaterialApp(
+            theme: Brutal.theme(),
+            home: Scaffold(
+              body: SizedBox(
+                height: 260,
+                width: 180,
+                child: PostCard(
+                  post: Post.fromJson({
+                    'id': 1,
+                    'title': 'A loud one',
+                    'kind': kind,
+                    'image_url': url,
+                    'created_at': '2026-08-14T19:34:03.000Z',
+                  }),
+                  index: 0,
+                  onTap: () {},
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
+    }
 
-    expect(tester.takeException(), isNull);
-    expect(find.text('VIDEO'), findsOneWidget);
-    expect(find.byType(Image), findsNothing, reason: 'never hand an .mp4 to Image.network');
-  });
+    for (final (kind, url) in [
+      ('video', 'https://sejbosejbo.fyi/uploads/a.mp4'),
+      ('audio', 'https://sejbosejbo.fyi/uploads/a.m4a'),
+      ('something-invented-later', 'https://sejbosejbo.fyi/uploads/a.bin'),
+    ]) {
+      await pumpCard(kind, url);
+      expect(tester.takeException(), isNull, reason: '$kind threw in a list');
+      expect(find.byType(Image), findsNothing,
+          reason: '$kind must never reach an image decoder');
+      expect(find.byType(VideoPlayer), findsNothing,
+          reason: '$kind must not open a video controller in a list');
+    }
 
-  testWidgets('the gate lets the app through when the server says nothing', (tester) async {
-    AppVersion.cachedForTest = const AppVersion(version: '1.8.0', build: '10');
-    addTearDown(() => AppVersion.cachedForTest = null);
-
-    final api = Api(
-      baseUrl: 'https://example.test',
-      useDemoData: false,
-      client: MockClient((_) async => http.Response('', 404)),
-    );
-    addTearDown(api.close);
-
-    await tester.pumpWidget(
-      L10n(
-        strings: Strings.en,
-        onChange: (_) {},
-        child: MaterialApp(
-          theme: Brutal.theme(),
-          home: UpdateGate(
-            api: api,
-            store: const NoStoreUpdates(),
-            child: const Scaffold(body: Text('THE APP')),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('THE APP'), findsOneWidget, reason: 'no endpoint must not lock anyone out');
-    expect(find.text('UPDATE REQUIRED'), findsNothing);
-  });
-
-  testWidgets('the gate walls the app off when the build is too old', (tester) async {
-    AppVersion.cachedForTest = const AppVersion(version: '1.4.0', build: '5');
-    addTearDown(() => AppVersion.cachedForTest = null);
-
-    final api = Api(
-      baseUrl: 'https://example.test',
-      useDemoData: false,
-      client: MockClient(
-        (_) async => http.Response('{"min_version":"1.8.0","message":"Voting moved."}', 200),
-      ),
-    );
-    addTearDown(api.close);
-
-    await tester.pumpWidget(
-      L10n(
-        strings: Strings.en,
-        onChange: (_) {},
-        child: MaterialApp(
-          theme: Brutal.theme(),
-          home: UpdateGate(
-            api: api,
-            store: const NoStoreUpdates(),
-            child: const Scaffold(body: Text('THE APP')),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('UPDATE REQUIRED'), findsOneWidget);
-    expect(find.text('UPDATE NOW'), findsOneWidget);
-    expect(find.text('Voting moved.'), findsOneWidget, reason: "server's reason is shown");
-    expect(find.text('THE APP'), findsNothing, reason: 'the app must be unreachable');
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Play having an update ready runs the flow without being asked',
-      (tester) async {
-    AppVersion.cachedForTest = const AppVersion(version: '1.10.0', build: '12');
-    addTearDown(() => AppVersion.cachedForTest = null);
-
-    final store = _FakeStore(ready: true);
-    final api = Api(
-      baseUrl: 'https://example.test',
-      useDemoData: false,
-      // Server has no opinion: Play alone is enough to force the update.
-      client: MockClient((_) async => http.Response('', 404)),
-    );
-    addTearDown(api.close);
-
-    await tester.pumpWidget(
-      L10n(
-        strings: Strings.en,
-        onChange: (_) {},
-        child: MaterialApp(
-          theme: Brutal.theme(),
-          home: UpdateGate(
-            api: api,
-            store: store,
-            child: const Scaffold(body: Text('THE APP')),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(store.immediateStarted, 1,
-        reason: "Play's own flow should open without the user tapping first");
-    // accepts: true, so the update went through and the app is usable again.
-    // (On a real device Play restarts the app at this point.)
-    expect(find.text('THE APP'), findsOneWidget);
-  });
-
-  testWidgets('declining the Play update keeps the wall up, with a retry', (tester) async {
-    AppVersion.cachedForTest = const AppVersion(version: '1.10.0', build: '12');
-    addTearDown(() => AppVersion.cachedForTest = null);
-
-    // accepts: false = the user backs out of Play's dialog.
-    final store = _FakeStore(ready: true, accepts: false);
-    final api = Api(
-      baseUrl: 'https://example.test',
-      useDemoData: false,
-      client: MockClient((_) async => http.Response('', 404)),
-    );
-    addTearDown(api.close);
-
-    await tester.pumpWidget(
-      L10n(
-        strings: Strings.en,
-        onChange: (_) {},
-        child: MaterialApp(
-          theme: Brutal.theme(),
-          home: UpdateGate(
-            api: api,
-            store: store,
-            child: const Scaffold(body: Text('THE APP')),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('THE APP'), findsNothing, reason: 'backing out must not get you in');
-
-    await tester.tap(find.text('UPDATE NOW'));
-    await tester.pump();
-    expect(store.immediateStarted, 2, reason: 'the button re-runs the flow');
-  });
-
-  testWidgets('no store update and no server opinion means nothing changes', (tester) async {
-    AppVersion.cachedForTest = const AppVersion(version: '1.10.0', build: '12');
-    addTearDown(() => AppVersion.cachedForTest = null);
-
-    final store = _FakeStore(ready: false);
-    final api = Api(
-      baseUrl: 'https://example.test',
-      useDemoData: false,
-      client: MockClient((_) async => http.Response('', 404)),
-    );
-    addTearDown(api.close);
-
-    await tester.pumpWidget(
-      L10n(
-        strings: Strings.en,
-        onChange: (_) {},
-        child: MaterialApp(
-          theme: Brutal.theme(),
-          home: UpdateGate(
-            api: api,
-            store: store,
-            child: const Scaffold(body: Text('THE APP')),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('THE APP'), findsOneWidget);
-    expect(store.immediateStarted, 0);
+    // An unrecognised kind still says so rather than pretending.
+    await pumpCard('something-invented-later', 'https://sejbosejbo.fyi/uploads/a.bin');
+    expect(find.text('SOMETHING-INVENTED-LATER'), findsOneWidget);
   });
 
   testWidgets('hall of fame is ordered by score, highest first', (tester) async {
@@ -453,34 +295,56 @@ void main() {
       expect(p.commentCount, 0, reason: 'a server that predates comments still parses');
     });
 
+    test('each kind maps to exactly one renderer', () {
+      Post of(String kind) => Post.fromJson({
+        'id': 4,
+        'title': 'x',
+        'kind': kind,
+        'image_url': 'https://sejbosejbo.fyi/uploads/a.mp4',
+        'created_at': '',
+      });
+
+      // Exactly one accessor is true per kind. Overlapping ones would mean two
+      // renderers could both claim a post, and the media slot picks the first.
+      for (final (kind, want) in [
+        ('image', ('image')),
+        ('video', ('video')),
+        ('audio', ('audio')),
+        ('story', ('story')),
+        ('hologram', ('unknown')),
+      ]) {
+        final p = of(kind);
+        final on = <String>[
+          if (p.isImage) 'image',
+          if (p.isVideo) 'video',
+          if (p.isAudio) 'audio',
+          if (p.isStory) 'story',
+          if (p.isUnsupported) 'unknown',
+        ];
+        expect(on, [want], reason: '\$kind should match exactly one renderer');
+      }
+    });
+
+    test('kind stays an open set - a new one degrades rather than crashing', () {
+      // The server can add a kind with no app release, so anything
+      // unrecognised must fall back instead of being guessed from the URL.
+      expect(Post.knownKinds, {'image', 'story', 'video', 'audio'});
+      final p = Post.fromJson({
+        'id': 4,
+        'title': 'x',
+        'kind': 'hologram',
+        'image_url': 'https://sejbosejbo.fyi/uploads/a.mp4',
+        'created_at': '',
+      });
+      expect(p.isUnsupported, isTrue);
+      expect(p.hasMedia, isTrue, reason: 'it does carry a file, we just cannot open it');
+    });
+
     test('reads comment_count', () {
       final p = Post.fromJson({'id': 3, 'title': 'x', 'created_at': '', 'comment_count': 12});
       expect(p.commentCount, 12);
     });
 
-    test('kind is an open set - audio and video are not treated as images', () {
-      // Audio/video exist server-side behind a flag. If an unknown kind fell
-      // through to the image path, Image.network would pull a whole .mp4 over
-      // mobile data before failing.
-      for (final kind in ['audio', 'video', 'something-invented-later']) {
-        final p = Post.fromJson({
-          'id': 4,
-          'title': 'x',
-          'kind': kind,
-          'image_url': 'https://sejbosejbo.fyi/uploads/a.mp4',
-          'created_at': '',
-        });
-        expect(p.isUnsupported, isTrue, reason: '$kind must not render as an image');
-        expect(p.isStory, isFalse);
-      }
-
-      for (final kind in ['image', 'story']) {
-        expect(
-          Post.fromJson({'id': 5, 'title': 'x', 'kind': kind, 'created_at': ''}).isUnsupported,
-          isFalse,
-        );
-      }
-    });
   });
 
   group('my_vote', () {

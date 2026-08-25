@@ -3,16 +3,21 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../l10n.dart';
 import '../models.dart';
+import '../music.dart';
 import '../prefs.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'detail.dart';
 
 class GalleryScreen extends StatefulWidget {
-  const GalleryScreen({super.key, required this.api, required this.prefs});
+  const GalleryScreen({super.key, required this.api, required this.prefs, this.music});
 
   final Api api;
   final Prefs prefs;
+
+  /// Handed to the detail screen so a video post can silence the theme music
+  /// while it plays. Null in tests.
+  final Music? music;
 
   @override
   State<GalleryScreen> createState() => _GalleryScreenState();
@@ -163,6 +168,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                       post: p,
                                       api: widget.api,
                                       prefs: widget.prefs,
+                                      music: widget.music,
                                     ),
                                   ),
                                 ),

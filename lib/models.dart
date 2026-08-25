@@ -94,17 +94,31 @@ class Post {
   );
 
   /// The kinds this build knows how to render.
-  static const knownKinds = {'image', 'story'};
+  static const knownKinds = {'image', 'story', 'video', 'audio'};
 
   /// Keyed off [kind], not [imageUrl]. If a photo post ever arrives without a
   /// usable URL - API hiccup, broken file - we still want its description shown
   /// rather than silently swallowed as if it were a text-only post.
   bool get isStory => kind == 'story';
 
-  /// A kind this build predates - audio and video are coming. The UI shows a
-  /// "open it on the website" card instead of guessing, which keeps old installs
-  /// working the day the server flips the flag rather than showing them a
-  /// permanent spinner or a broken image.
+  bool get isImage => kind == 'image';
+
+  /// mp4 / webm / mov, up to 500MB - which is why a feed never touches these
+  /// and only the detail screen streams one.
+  bool get isVideo => kind == 'video';
+
+  /// mp3 / m4a / ogg / wav / weba.
+  bool get isAudio => kind == 'audio';
+
+  /// True for anything carrying a playable file, whatever the kind.
+  bool get hasMedia => (imageUrl ?? '').isNotEmpty && !isStory;
+
+  /// A kind this build predates. The UI shows an "open it on the website" card
+  /// rather than guessing what the file is, which keeps installs working when
+  /// the server starts sending something new.
+  ///
+  /// Never infer the type from the URL extension - `kind` is the contract, and
+  /// a re-encode can change the extension without changing the kind.
   bool get isUnsupported => !knownKinds.contains(kind);
 
   factory Post.fromJson(Map<String, dynamic> j) => Post(

@@ -124,6 +124,7 @@ class Strings {
     'donateSoonTitle': 'TIPPING IS NOT LIVE YET',
     'donateSoonBody': 'The payment side is still being set up on this platform. '
         'Nothing is wrong with your app - check back soon.',
+    'mediaFailed': 'This one will not play. Try it on the website.',
     'musicTitle': 'THEME MUSIC',
     'musicBody': 'The same loop the website plays. Off by default, because your '
         'phone was probably already doing something.',
@@ -248,6 +249,7 @@ class Strings {
     'donateSoonTitle': 'NAPITNINE ŠE NISO ŽIVE',
     'donateSoonBody': 'Plačilni del se na tej platformi še ureja. Z aplikacijo '
         'ni nič narobe - poglej spet kmalu.',
+    'mediaFailed': 'Tega ni mogoče predvajati. Poskusi na spletni strani.',
     'musicTitle': 'GLASBA',
     'musicBody': 'Ista zanka kot na spletni strani. Privzeto izklopljena, ker je '
         'tvoj telefon verjetno že kaj predvajal.',
