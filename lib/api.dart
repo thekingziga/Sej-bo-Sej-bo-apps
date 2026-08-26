@@ -600,6 +600,15 @@ class Api {
   ) {
     if (onProgress == null) return req;
 
+    // finalize() FIRST, and only then copy the headers. MultipartRequest does
+    // not know its own boundary until it is finalized - that is the line where
+    // it writes `content-type: multipart/form-data; boundary=...` into its
+    // headers. Copying them before that produced a request with no content
+    // type at all: every byte of the file arrived, the server could not parse a
+    // single field out of it, and answered "Add a title and either an image/GIF
+    // or a story." That is what broke every upload from 1.16.0, when this
+    // wrapper was added - not just video, and not just large files.
+    final body = req.finalize();
     final total = req.contentLength;
     final out = http.StreamedRequest(req.method, req.url)
       ..headers.addAll(req.headers)
@@ -616,7 +625,7 @@ class Api {
     }
 
     resetStall();
-    req.finalize().listen(
+    body.listen(
       (chunk) {
         sent += chunk.length;
         onProgress(sent, total);

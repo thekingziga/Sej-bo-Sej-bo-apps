@@ -1179,6 +1179,46 @@ void main() {
       return (sent.single as http.MultipartRequest).files.single.contentType.toString();
     }
 
+    test('the progress wrapper keeps the multipart boundary header', () async {
+      // Every upload from the app passes an onProgress callback, which swaps
+      // the MultipartRequest for a re-streamed one. That wrapper used to copy
+      // the headers before finalize(), and a MultipartRequest does not know its
+      // own boundary until then - so the request went out with no content type,
+      // the whole file arrived, and the server could not parse one field out of
+      // it. Every upload failed with "Add a title and either an image/GIF or a
+      // story", which reads like a validation bug and is not one.
+      late Uint8List body;
+      final api = Api(
+        baseUrl: 'https://example.test',
+        useDemoData: false,
+        client: MockClient.streaming((req, bytes) async {
+          sent.add(req);
+          body = await bytes.toBytes();
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(
+                jsonEncode({'id': 1, 'title': 't', 'kind': 'image', 'created_at': ''}))),
+            201,
+          );
+        }),
+      );
+      sent = [];
+
+      await api.createPost(
+        title: 'gg',
+        description: '',
+        mediaBytes: file([0xFF, 0xD8, 0xFF]),
+        onProgress: (_, _) {},
+      );
+
+      final ct = sent.single.headers['content-type'] ?? '';
+      expect(ct, startsWith('multipart/form-data; boundary='));
+
+      // And the boundary announced in the header is the one the body uses -
+      // a header alone would not prove the server can find the parts.
+      final boundary = ct.split('boundary=').last;
+      expect(utf8.decode(body, allowMalformed: true), contains(boundary));
+    });
+
     test('sniffs video containers by brand, not extension', () async {
       // mp4, mov and m4a share "ftyp" at offset 4 and differ only by brand -
       // getting this wrong sends a video as audio and earns a 415.

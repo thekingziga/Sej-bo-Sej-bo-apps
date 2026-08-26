@@ -9,6 +9,33 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.16.3+23
+
+**Fixed**
+- **Every upload from the app failed.** Not just video, not just large files -
+  every one, including a story with no file at all, since 1.16.0. The upload
+  progress bar was added in that release, and it swaps the multipart request
+  for a re-streamed one so the bytes can be counted. It copied the headers
+  across *before* finalising the request - and a multipart request does not
+  know its own boundary until it is finalised, because that is the line where
+  it writes `content-type: multipart/form-data; boundary=...`. So the request
+  went out with no content type at all. The whole file was uploaded, the
+  progress bar ran to 100%, and then the server could not parse a single field
+  out of the body and answered "Add a title and either an image/GIF or a
+  story." - which reads like a validation bug and is not one.
+
+  Reproduced against a real socket rather than a mock: 2,721,678 bytes
+  received, `content-type: null`. The tests missed it because none of them
+  passed a progress callback, so none of them took that path; the new one does,
+  and checks that the boundary in the header is the one the body actually uses.
+
+```
+Fixes uploading. Photos, GIFs, audio, video and stories all failed to post -
+the file was sent but the server could not read it. Sorry about that.
+```
+
+---
+
 ## 1.16.2+22
 
 Play's release dashboard raised three "recommended actions" against 1.16.1.
