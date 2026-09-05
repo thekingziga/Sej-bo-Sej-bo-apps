@@ -480,12 +480,12 @@ class RankBadge extends StatelessWidget {
   }
 }
 
-String relativeDate(DateTime d) {
+String relativeDate(DateTime d, [Strings? t]) {
   final diff = DateTime.now().difference(d);
-  if (diff.inMinutes < 1) return 'just now';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-  if (diff.inHours < 24) return '${diff.inHours}h ago';
-  if (diff.inDays < 30) return '${diff.inDays}d ago';
+  if (diff.inMinutes < 1) return t?['justNow'] ?? 'just now';
+  if (diff.inMinutes < 60) return t?['minutesAgo'].replaceAll('{n}', '${diff.inMinutes}') ?? '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return t?['hoursAgo'].replaceAll('{n}', '${diff.inHours}') ?? '${diff.inHours}h ago';
+  if (diff.inDays < 30) return t?['daysAgo'].replaceAll('{n}', '${diff.inDays}') ?? '${diff.inDays}d ago';
   return '${d.day}.${d.month}.${d.year}';
 }
 

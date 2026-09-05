@@ -10,14 +10,14 @@ web view.
 |---|---|
 | UI — dashboard, gallery, upload, support | done, tested |
 | Design system (`lib/theme.dart`) | done |
-| API client (`lib/api.dart`) | written against a contract that does not exist server-side yet |
-| Demo mode | on by default, so the app runs today |
-| Donations — Stripe rail | code done, needs the server endpoint |
-| Donations — Apple/Google rail | code done, needs store products + server verification |
-| **iOS build** | **working** — runs on simulator (Xcode 26.6) |
-| **Android build** | **working** — APK runs on emulator (SDK 36) |
+| API client (`lib/api.dart`) | live — talking to sejbosejbo.fyi |
+| Demo mode | available via empty `API_BASE_URL`, off in production |
+| Donations — Stripe rail | live on desktop |
+| Donations — Apple/Google rail | live on mobile |
+| **iOS build** | **working** — published to App Store |
+| **Android build** | **working** — published to Google Play |
 | **macOS build** | **working** — runs as a desktop app |
-| Windows build | not built — needs a Windows machine |
+| **Windows build** | **working** — CI builds via GitHub Actions |
 
 ## Run it
 
@@ -25,11 +25,11 @@ web view.
 flutter run
 ```
 
-With no `API_BASE_URL` it starts in **demo mode** on bundled sample posts and
-shows a banner saying so. Point it at the real API once the endpoints exist:
+Connects to the production API at `sejbosejbo.fyi` by default. To run in
+**demo mode** on bundled sample posts instead:
 
 ```bash
-flutter run --dart-define=API_BASE_URL=https://sejbosejbo.fyi
+flutter run --dart-define=API_BASE_URL=
 ```
 
 `--dart-define=START_TAB=2` opens straight onto a given tab, for screenshots.

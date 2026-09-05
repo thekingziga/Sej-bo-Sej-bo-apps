@@ -9,14 +9,18 @@ import 'package:pasteboard/pasteboard.dart';
 
 import '../api.dart';
 import '../l10n.dart';
+import '../prefs.dart';
+import '../music.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'detail.dart';
 
 class UploadScreen extends StatefulWidget {
-  const UploadScreen({super.key, required this.api});
+  const UploadScreen({super.key, required this.api, required this.prefs, this.music});
 
   final Api api;
+  final Prefs prefs;
+  final Music? music;
 
   @override
   State<UploadScreen> createState() => _UploadScreenState();
@@ -213,7 +217,12 @@ class _UploadScreenState extends State<UploadScreen> {
       });
       await Navigator.of(
         context,
-      ).push(MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)));
+      ).push(MaterialPageRoute(builder: (_) => PostDetailScreen(
+        post: post,
+        api: widget.api,
+        prefs: widget.prefs,
+        music: widget.music,
+      )));
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {

@@ -38,10 +38,14 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<Feed> _future;
   Post? _hero;
   int _heroVote = 0;
+  String? _lang;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final lang = L10n.of(context).code;
+    if (lang == _lang) return;
+    _lang = lang;
     _future = _fetch();
   }
 

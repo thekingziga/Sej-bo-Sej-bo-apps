@@ -40,8 +40,12 @@ class Music {
     await _play();
   }
 
+  /// True while we are waiting for the player to initialize and play.
+  bool _starting = false;
+
   Future<void> _play() async {
-    if (_player != null || kIsWeb || _suspended) return;
+    if (_player != null || kIsWeb || _suspended || _starting) return;
+    _starting = true;
     try {
       final player = AudioPlayer();
       await player.setReleaseMode(ReleaseMode.loop);
@@ -51,6 +55,8 @@ class Music {
     } catch (_) {
       // A device that cannot play it is not a device that should crash over it.
       _player = null;
+    } finally {
+      _starting = false;
     }
   }
 

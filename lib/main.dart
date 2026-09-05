@@ -221,7 +221,7 @@ class _ShellState extends State<Shell> {
       case 1:
         return GalleryScreen(api: widget.api, prefs: widget.prefs, music: widget.music);
       case 2:
-        return UploadScreen(api: widget.api);
+        return UploadScreen(api: widget.api, prefs: widget.prefs, music: widget.music);
       default:
         return DonateScreen(
           api: widget.api,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -203,6 +205,7 @@ class PostAudioPlayer extends StatefulWidget {
 
 class _PostAudioPlayerState extends State<PostAudioPlayer> {
   final _player = AudioPlayer();
+  final _subs = <StreamSubscription>[];
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _playing = false;
@@ -211,13 +214,13 @@ class _PostAudioPlayerState extends State<PostAudioPlayer> {
   @override
   void initState() {
     super.initState();
-    _player.onPositionChanged.listen((p) {
+    _subs.add(_player.onPositionChanged.listen((p) {
       if (mounted) setState(() => _position = p);
-    });
-    _player.onDurationChanged.listen((d) {
+    }));
+    _subs.add(_player.onDurationChanged.listen((d) {
       if (mounted) setState(() => _duration = d);
-    });
-    _player.onPlayerComplete.listen((_) {
+    }));
+    _subs.add(_player.onPlayerComplete.listen((_) {
       widget.music?.resume();
       if (mounted) {
         setState(() {
@@ -225,7 +228,7 @@ class _PostAudioPlayerState extends State<PostAudioPlayer> {
           _position = Duration.zero;
         });
       }
-    });
+    }));
   }
 
   Future<void> _toggle() async {
@@ -250,14 +253,19 @@ class _PostAudioPlayerState extends State<PostAudioPlayer> {
 
   @override
   void dispose() {
+    for (final s in _subs) {
+      s.cancel();
+    }
     _player.dispose();
     widget.music?.resume();
     super.dispose();
   }
 
   static String _clock(Duration d) {
-    final m = d.inMinutes.remainder(60).toString();
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final m = d.inMinutes.remainder(60).toString();
+    final h = d.inHours;
+    if (h > 0) return '$h:${m.padLeft(2, '0')}:$s';
     return '$m:$s';
   }
 

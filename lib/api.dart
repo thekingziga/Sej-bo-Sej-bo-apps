@@ -143,6 +143,21 @@ class Api {
     );
   }
 
+  Future<Post> getPost(int id, {String lang = 'en'}) async {
+    if (_demo) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final p = _demoPosts.where((p) => p.id == id).firstOrNull;
+      if (p == null) throw ApiException('That Sejbosejbo could not be found.', statusCode: 404);
+      return p;
+    }
+    try {
+      return Post.fromJson(await _getJson('/posts/$id', {'lang': lang}));
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) throw ApiException('That Sejbosejbo could not be found.', statusCode: 404);
+      rethrow;
+    }
+  }
+
   /// Casts or clears a vote. [value] is 1 ("sej bo"), -1 ("sej ne bo") or 0 to
   /// undo. Returns the post with the server's authoritative counts.
   Future<Post> vote(int postId, int value) async {
@@ -157,6 +172,10 @@ class Api {
       return updated;
     }
 
+    if (prefs == null) {
+      throw ApiException('Cannot vote without a device id.');
+    }
+
     late http.Response res;
     try {
       res = await _client
@@ -169,8 +188,17 @@ class Api {
     } catch (_) {
       throw ApiException('Could not register your vote. Check your connection.');
     }
+    
+    if (res.statusCode == 429) {
+      throw ApiException.rateLimited(res, 'Slow down - too many votes from this network.');
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException('Vote rejected (${res.statusCode}).', statusCode: res.statusCode);
+      String msg = 'Vote rejected (${res.statusCode}).';
+      try {
+        final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        if (j['error'] is String) msg = j['error'] as String;
+      } catch (_) {}
+      throw ApiException(msg, statusCode: res.statusCode);
     }
     return Post.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
@@ -478,7 +506,7 @@ class Api {
   /// What the server accepts, per kind. Checked before a byte leaves the
   /// device: discovering a 413 after pushing 500MB up a phone connection is a
   /// uniquely miserable way to learn a file is too big.
-  static const maxImageBytes = 100 * 1024 * 1024;
+  static const maxImageBytes = 8 * 1024 * 1024;
   static const maxAudioVideoBytes = 500 * 1024 * 1024;
 
   /// Multipart upload. [mediaPath] is a local file path; null means text-only.

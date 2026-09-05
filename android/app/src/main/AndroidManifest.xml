@@ -7,6 +7,7 @@
     <!-- Android 13+ requires this to be requested at runtime as well; older
          releases grant notifications implicitly. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />

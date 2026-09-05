@@ -70,13 +70,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _error = null;
     });
     try {
-      final page = await api.posts(perPage: 50);
-      final found = page.items.where((p) => p.id == id).firstOrNull;
+      final found = await api.getPost(id);
       if (!mounted) return;
       setState(() {
         _post = found;
-        _myVote = found?.myVote ?? 0;
-        if (found == null) _error = 'That Sejbosejbo could not be found.';
+        _myVote = found.myVote ?? 0;
       });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');

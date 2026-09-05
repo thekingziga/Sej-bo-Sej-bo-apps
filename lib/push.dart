@@ -87,7 +87,12 @@ class Push {
 
   void _openFrom(RemoteMessage message) {
     final raw = message.data['post_id'];
-    final id = raw is String ? int.tryParse(raw) : (raw as num?)?.toInt();
+    int? id;
+    if (raw is String) {
+      id = int.tryParse(raw);
+    } else if (raw is num) {
+      id = raw.toInt();
+    }
     // Deliberately keyed off data.post_id rather than parsing data.url: the id
     // is the thing the app needs, and a URL could point anywhere.
     if (id != null) onOpenPost(id);
@@ -100,9 +105,20 @@ class Push {
 
   Future<void> _register(String token) async {
     try {
+      final String platform;
+      switch (defaultTargetPlatform) {
+        case TargetPlatform.iOS:
+          platform = 'ios';
+        case TargetPlatform.macOS:
+          platform = 'macos';
+        case TargetPlatform.windows:
+          platform = 'windows';
+        default:
+          platform = 'android';
+      }
       deliveryEnabled = await api.registerPush(
         token: token,
-        platform: defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+        platform: platform,
         lang: prefs.lang == Lang.sl ? 'sl' : 'en',
       );
       await prefs.setPushToken(token);

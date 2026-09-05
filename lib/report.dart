@@ -73,8 +73,9 @@ class _ReportSheetState extends State<_ReportSheet> {
     try {
       await widget.api.report(widget.target, widget.id, reason, details: _details.text);
       if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           backgroundColor: Brutal.lime,
           content: Text(

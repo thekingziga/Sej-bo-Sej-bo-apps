@@ -60,11 +60,20 @@ class Prefs {
   /// Falls back to a locally generated random id, which the server still
   /// accepts, when it has never managed to mint a signed one - offline first
   /// run, or the mint endpoint being rate limited.
+  ///
+  /// On first access, generates and persists a random id synchronously through
+  /// SharedPreferences' commit. The write is not awaited here because
+  /// SharedPreferences buffers it and the id is already in memory — losing the
+  /// write only matters on an immediate process kill, which is rare enough to
+  /// accept.
   String get deviceId {
     final existing = _p.getString(_kDeviceId);
     if (existing != null && existing.isNotEmpty) return existing;
     final r = Random.secure();
     final id = List.generate(16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+    // Fire-and-forget: the id is already in SharedPreferences' in-memory cache
+    // from this point, so reads within the same process are safe. The disk
+    // write finishing later is acceptable.
     _p.setString(_kDeviceId, id);
     return id;
   }

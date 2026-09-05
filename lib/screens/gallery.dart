@@ -86,7 +86,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '$e');
+      setState(() {
+        _error = '$e';
+        // Stop the scroll listener from hammering a failing page forever.
+        _hasNext = false;
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }

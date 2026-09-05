@@ -242,6 +242,7 @@ class _PitchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = L10n.of(context);
     return BrutalBox(
       color: Brutal.orange,
       padding: const EdgeInsets.all(18),
@@ -259,11 +260,10 @@ class _PitchCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('THIS RUNS ON A\nRASPBERRY PI', style: Brutal.display.copyWith(fontSize: 24)),
+                Text(t['pitchTitle'], style: Brutal.display.copyWith(fontSize: 24)),
                 const SizedBox(height: 8),
                 Text(
-                  'No ads. No tracking. No accounts. Just a very small computer '
-                  'in a cupboard, archiving humanity’s worst decisions.',
+                  t['pitchBody'],
                   style: Brutal.body.copyWith(fontSize: 14),
                 ),
               ],
@@ -280,6 +280,7 @@ class _ThanksCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = L10n.of(context);
     return BrutalBox(
       color: Brutal.lime,
       rotation: -0.015,
@@ -288,10 +289,10 @@ class _ThanksCard extends StatelessWidget {
         children: [
           const Text('😻', style: TextStyle(fontSize: 46)),
           const SizedBox(height: 8),
-          Text('CERTIFIED LEGEND', style: Brutal.display.copyWith(fontSize: 26)),
+          Text(t['thanksTitle'], style: Brutal.display.copyWith(fontSize: 26)),
           const SizedBox(height: 5),
           Text(
-            'The Pi thanks you. It will keep going.',
+            t['thanksBody'],
             textAlign: TextAlign.center,
             style: Brutal.body.copyWith(fontSize: 15),
           ),
@@ -532,10 +533,8 @@ class _RailNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = rail == DonationRail.store
-        ? 'Handled by the App Store / Google Play. They take their cut before it '
-              'reaches the Pi — that is their rule, not ours.'
-        : 'Handled by Stripe in your browser. Card details never touch this app.';
+    final t = L10n.of(context);
+    final text = rail == DonationRail.store ? t['railStore'] : t['railStripe'];
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,

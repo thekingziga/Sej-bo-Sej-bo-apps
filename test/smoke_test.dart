@@ -238,13 +238,15 @@ void main() {
     );
     addTearDown(api.close);
 
+    final prefs = await Prefs.load();
+
     await tester.pumpWidget(
       L10n(
         strings: Strings.en,
         onChange: (_) {},
         child: MaterialApp(
           theme: Brutal.theme(),
-          home: Scaffold(body: UploadScreen(api: api)),
+          home: Scaffold(body: UploadScreen(api: api, prefs: prefs)),
         ),
       ),
     );

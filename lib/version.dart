@@ -23,8 +23,10 @@ int compareVersions(String a, String b) {
 }
 
 List<int> _parts(String v) {
+  var s = v.trim();
+  if (s.startsWith('v') || s.startsWith('V')) s = s.substring(1);
   final out = <int>[];
-  for (final chunk in v.trim().split('.')) {
+  for (final chunk in s.split('.')) {
     // Take the leading digits only: "1.8.0+10" -> [1, 8, 0], "2.0-rc1" -> [2, 0].
     final digits = RegExp(r'^\d+').firstMatch(chunk)?.group(0);
     if (digits == null) break;

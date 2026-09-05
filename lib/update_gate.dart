@@ -53,10 +53,15 @@ class _UpdateGateState extends State<UpdateGate> {
   }
 
   Future<void> _check() async {
-    final mine = await AppVersion.load();
-    final release = await widget.api.release();
-    final storeReady = await widget.store.isUpdateReady();
+    final results = await Future.wait([
+      AppVersion.load(),
+      widget.api.release(),
+      widget.store.isUpdateReady(),
+    ]);
     if (!mounted) return;
+    final mine = results[0] as AppVersion;
+    final release = results[1] as AppRelease?;
+    final storeReady = results[2] as bool;
     setState(() {
       _mine = mine;
       _release = release;
