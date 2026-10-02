@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -860,6 +861,40 @@ void main() {
 
       expect(verified, isEmpty);
       expect(store.finished, isEmpty);
+    });
+  });
+
+  group('website links', () {
+    test('the marketplace opens in the language the app is in', () {
+      expect(Links.marketplace('sl'), 'https://sejbosejbo.fyi/marketplace?lang=sl');
+      expect(Links.marketplace('en'), 'https://sejbosejbo.fyi/marketplace?lang=en');
+      // Both are live and the parameter is honoured - the page title comes back
+      // "Sejbo tržnica" for sl and "Sejbo Marketplace" for en.
+      for (final lang in ['sl', 'en']) {
+        expect(Uri.parse(Links.marketplace(lang)).host, 'sejbosejbo.fyi');
+      }
+    });
+
+    test('both languages have a name for it, with the č intact', () {
+      expect(Strings.en['linkMarketplace'], 'Marketplace');
+      expect(Strings.sl['linkMarketplace'], 'Tržnica');
+      // And the code that builds the URL agrees with the language table.
+      expect(Links.marketplace(Strings.sl.code), endsWith('lang=sl'));
+      expect(Links.marketplace(Strings.en.code), endsWith('lang=en'));
+    });
+
+    test('App Links still claim only /post, or nobody can sign in', () {
+      // Marketplace sign-in is an emailed link. If this filter ever grew to
+      // cover /login, /marketplace or /messages, Android would hand those links
+      // to the app, which has no screen for them - and the account would be
+      // unreachable. The filter is deliberately narrow; this is the guard.
+      final manifest =
+          File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+      final prefixes = RegExp(r'android:pathPrefix="([^"]*)"')
+          .allMatches(manifest)
+          .map((m) => m.group(1))
+          .toList();
+      expect(prefixes, ['/post']);
     });
   });
 

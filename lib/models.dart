@@ -434,6 +434,20 @@ class Links {
   static const terms = 'https://sejbosejbo.fyi/terms';
   static const website = 'https://sejbosejbo.fyi';
 
+  /// The website's classifieds. A browser link, not a screen, and deliberately
+  /// not a WebView: signing in there is an emailed link that opens in the
+  /// system browser and sets the session cookie in *that* browser, so a WebView
+  /// with its own cookie jar would leave the user logged in somewhere the app
+  /// cannot see and looking logged out inside it. A WebView would also make
+  /// everything collected there count as collected by the app, which would
+  /// change the Play data safety answers; the external browser leaves them
+  /// exactly as they are.
+  ///
+  /// `lang` is the app's own [Strings.code], so the page opens in the language
+  /// the user is already reading.
+  static String marketplace(String lang) =>
+      'https://sejbosejbo.fyi/marketplace?lang=$lang';
+
   /// Where the update button goes. The `market:` scheme opens the Play app
   /// directly; the https form is the fallback for anything without it,
   /// including a desktop browser.

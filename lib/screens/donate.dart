@@ -226,7 +226,7 @@ class _DonateScreenState extends State<DonateScreen> {
 
                 // Play and Apple both expect the privacy policy and terms to be
                 // reachable from inside the app, not only from the store listing.
-                const _LegalLinks(),
+                const _SiteLinks(),
                 VersionFooter(api: widget.api),
               ],
             ),
@@ -558,10 +558,12 @@ class _RailNote extends StatelessWidget {
 }
 
 
-/// Links out to the policy pages on the website. They are plain HTML, not API
-/// endpoints, so this deliberately opens a browser rather than fetching them.
-class _LegalLinks extends StatelessWidget {
-  const _LegalLinks();
+/// Links out to the website - the marketplace, and the policy pages. All plain
+/// HTML rather than API endpoints, so this opens a browser rather than fetching
+/// them. The marketplace leads, because it is somewhere to go rather than fine
+/// print; privacy and terms stay below it, where Play and Apple expect them.
+class _SiteLinks extends StatelessWidget {
+  const _SiteLinks();
 
   Future<void> _open(String url) async {
     final uri = Uri.parse(url);
@@ -575,6 +577,7 @@ class _LegalLinks extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final item in [
+          (t['linkMarketplace'], Links.marketplace(t.code)),
           (t['legalPrivacy'], Links.privacy),
           (t['legalTerms'], Links.terms),
           (t['legalWebsite'], Links.website),

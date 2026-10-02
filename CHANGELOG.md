@@ -9,6 +9,34 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.17.0+24
+
+**Added**
+- **The website's marketplace, from the Support tab.** Server 1.39.0 added
+  classified ads with messaging and offers at `/marketplace`. There is no JSON
+  API for it, so this is a link rather than a screen - it sits above the policy
+  links, because it is somewhere to go rather than fine print, and it carries
+  the app's own language so the page opens in the one you are already reading.
+
+**Deliberately not done**
+- **Not a WebView.** Signing in there is an emailed link, which opens in the
+  system browser and sets the session cookie *there* - a WebView keeps its own
+  cookie jar, so the user would sign in somewhere the app cannot see and still
+  look signed out inside it. A WebView would also make everything collected on
+  those pages count as collected by the app, which would change the Play data
+  safety answers. The external browser leaves them exactly as they were.
+- **The App Links filter was not widened**, and there is now a test holding it
+  to `/post`. If it ever claimed `/login` or `/marketplace`, Android would hand
+  the sign-in email's link to an app with no screen for it, and the account
+  would be unreachable.
+
+```
+The sejbosejbo marketplace is now one tap away, in the Support tab. It opens in
+your browser, where your account and messages already live.
+```
+
+---
+
 ## 1.16.3+23
 
 **Fixed**
