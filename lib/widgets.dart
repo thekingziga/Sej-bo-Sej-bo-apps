@@ -605,3 +605,87 @@ class BrandHeader extends StatelessWidget {
     );
   }
 }
+
+/// A labelled, bordered text field with the hard shadow - every text input in
+/// the app, so they cannot drift apart. Started life in the upload screen.
+class BrutalField extends StatelessWidget {
+  const BrutalField({
+    super.key,
+    required this.label,
+    required this.hint,
+    required this.controller,
+    required this.maxLength,
+    this.maxLines = 1,
+    this.onChanged,
+    this.onSubmitted,
+    this.keyboardType,
+    this.textInputAction,
+    this.inputFormatters,
+    this.autofocus = false,
+    this.errorText,
+    this.autofillHints,
+  });
+
+  final String label;
+  final String hint;
+  final TextEditingController controller;
+  final int maxLength;
+  final int maxLines;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final List<TextInputFormatter>? inputFormatters;
+  final bool autofocus;
+
+  /// Shown under the field, in the field's own voice rather than a red box,
+  /// for the mistakes that are about this one input.
+  final String? errorText;
+  final Iterable<String>? autofillHints;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label.toUpperCase(), style: Brutal.label.copyWith(fontSize: 13)),
+        const SizedBox(height: 7),
+        Container(
+          decoration: BoxDecoration(
+            color: Brutal.paper,
+            border: errorText == null ? Brutal.outline : Border.all(color: Brutal.danger, width: Brutal.border),
+            boxShadow: Brutal.shadow(dx: 4, dy: 4),
+          ),
+          child: TextField(
+            controller: controller,
+            maxLength: maxLength,
+            maxLines: maxLines,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted,
+            keyboardType: keyboardType,
+            textInputAction: textInputAction,
+            inputFormatters: inputFormatters,
+            autofocus: autofocus,
+            autofillHints: autofillHints,
+            style: Brutal.body.copyWith(fontSize: 17),
+            cursorColor: Brutal.ink,
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: Brutal.body.copyWith(
+                fontSize: 17,
+                color: Brutal.ink.withValues(alpha: 0.35),
+              ),
+              counterText: '',
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
+            ),
+          ),
+        ),
+        if (errorText != null) ...[
+          const SizedBox(height: 6),
+          Text(errorText!, style: Brutal.body.copyWith(fontSize: 13, color: Brutal.danger)),
+        ],
+      ],
+    );
+  }
+}

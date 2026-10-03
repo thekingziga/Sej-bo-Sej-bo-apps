@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'api.dart';
 import 'donations.dart';
 import 'l10n.dart';
+import 'market/screens/market.dart';
+import 'market/session.dart';
+import 'market/widgets.dart' show UnreadBadge;
 import 'music.dart';
 import 'prefs.dart';
 import 'push.dart';
@@ -61,6 +64,10 @@ class _SejbosejboAppState extends State<SejbosejboApp> with WidgetsBindingObserv
   late final Music _music = Music(widget.prefs);
   Music get music => _music;
 
+  /// Who is signed in to the marketplace. Lives as long as the app, like the
+  /// rest of these, so the unread badge on the tab survives switching tabs.
+  late final MarketSession _market = MarketSession(api: _api);
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +78,7 @@ class _SejbosejboAppState extends State<SejbosejboApp> with WidgetsBindingObserv
     // Only actually plays if the user turned it on in a previous session.
     WidgetsBinding.instance.addObserver(this);
     _music.start();
+    _market.restore(lang: Strings.of(_lang).code);
   }
 
   /// Swaps the locally generated device id for one the server signs, exactly
@@ -128,12 +136,20 @@ class _SejbosejboAppState extends State<SejbosejboApp> with WidgetsBindingObserv
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _music.handleLifecycle(foreground: state == AppLifecycleState.resumed);
+    // Messages arrive by email while the app is closed; coming back is when
+    // the badge should catch up with them.
+    if (state == AppLifecycleState.resumed) {
+      final lang = Strings.of(_lang).code;
+      _market.refresh(lang: lang);
+      if (_market.available != true) _market.probe(lang: lang);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _music.dispose();
+    _market.dispose();
     _linkSub?.cancel();
     _donations.dispose();
     _api.close();
@@ -161,6 +177,7 @@ class _SejbosejboAppState extends State<SejbosejboApp> with WidgetsBindingObserv
             prefs: widget.prefs,
             push: _push,
             music: _music,
+            market: _market,
           ),
         ),
       ),
@@ -176,6 +193,7 @@ class Shell extends StatefulWidget {
     required this.prefs,
     this.push,
     this.music,
+    this.market,
   });
 
   final Api api;
@@ -188,6 +206,10 @@ class Shell extends StatefulWidget {
   /// Absent in tests, where there is no audio device.
   final Music? music;
 
+  /// Absent in tests, which get a signed-out session with no keystore behind
+  /// it rather than no marketplace tab.
+  final MarketSession? market;
+
   @override
   State<Shell> createState() => _ShellState();
 }
@@ -196,8 +218,44 @@ class _ShellState extends State<Shell> {
   // Lets a screenshot/dev run open straight onto a given tab:
   //   flutter run --dart-define=START_TAB=2
   // Defaults to 0, so release builds are unaffected.
-  int _index = const int.fromEnvironment('START_TAB').clamp(0, 3);
-  final _navKeys = List.generate(4, (_) => GlobalKey<NavigatorState>());
+  int _index = const int.fromEnvironment('START_TAB').clamp(0, 4);
+  final _navKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
+
+  late final MarketSession _market =
+      widget.market ?? MarketSession(api: widget.api, store: MemoryTokenStore());
+
+  /// The marketplace's tab position. Its navigator always exists, so indices
+  /// never shift; only the bar hides it until the server says it is there.
+  static const _marketTab = 3;
+  bool? _marketKnown;
+
+  bool get _marketShown => _market.available == true;
+
+  @override
+  void initState() {
+    super.initState();
+    _market.addListener(_onMarket);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _market.available == null) _market.probe(lang: L10n.of(context).code);
+    });
+  }
+
+  @override
+  void dispose() {
+    _market.removeListener(_onMarket);
+    if (widget.market == null) _market.dispose();
+    super.dispose();
+  }
+
+  /// Rebuilds when the marketplace appears or disappears - not on every
+  /// unread-count change, which only the nav bar needs to hear about.
+  void _onMarket() {
+    if (_market.available == _marketKnown) return;
+    _marketKnown = _market.available;
+    setState(() {
+      if (!_marketShown && _index == _marketTab) _index = 0;
+    });
+  }
 
   void _go(int i) {
     if (i == _index) {
@@ -222,6 +280,8 @@ class _ShellState extends State<Shell> {
         return GalleryScreen(api: widget.api, prefs: widget.prefs, music: widget.music);
       case 2:
         return UploadScreen(api: widget.api);
+      case 3:
+        return MarketScreen(api: widget.api, session: _market);
       default:
         return DonateScreen(
           api: widget.api,
@@ -236,12 +296,16 @@ class _ShellState extends State<Shell> {
   @override
   Widget build(BuildContext context) {
     final t = L10n.of(context);
-    final tabs = [
+    List<_TabSpec> tabsWith({int unread = 0}) => [
       _TabSpec(t['tabHome'], Icons.bolt, Brutal.yellow),
       _TabSpec(t['tabGallery'], Icons.grid_view_rounded, Brutal.cyan),
       _TabSpec(t['tabUpload'], Icons.add_a_photo_outlined, Brutal.pink),
+      _TabSpec(t['tabMarket'], Icons.storefront_outlined, Brutal.lime, badge: unread),
       _TabSpec(t['tabSupport'], Icons.favorite, Brutal.orange),
     ];
+    final tabs = tabsWith();
+    // A dev run started on the marketplace tab before the server has answered.
+    final shown = !_marketShown && _index == _marketTab ? 0 : _index;
 
     return Scaffold(
       backgroundColor: Brutal.paper,
@@ -253,27 +317,58 @@ class _ShellState extends State<Shell> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 820),
           child: IndexedStack(
-            index: _index,
+            index: shown,
             children: List.generate(
               tabs.length,
-              (i) => Navigator(
-                key: _navKeys[i],
-                onGenerateRoute: (s) => MaterialPageRoute(builder: (_) => _screenFor(i)),
+              // Android's back button goes to the root navigator, which only
+              // holds this shell - so without this, back from a post or a
+              // listing closed the whole app instead of going back one screen.
+              // Each tab handles its own: the handler calls back even when
+              // disabled, so the check on _index is what keeps one press from
+              // popping every tab's stack at once.
+              (i) => NavigatorPopHandler<Object?>(
+                enabled: i == _index,
+                onPopWithResult: (_) {
+                  if (i == _index) _navKeys[i].currentState?.maybePop();
+                },
+                child: Navigator(
+                  key: _navKeys[i],
+                  onGenerateRoute: (s) => MaterialPageRoute(builder: (_) => _screenFor(i)),
+                ),
               ),
             ),
           ),
         ),
       ),
-      bottomNavigationBar: _BrutalNavBar(tabs: tabs, index: _index, onTap: _go),
+      // Only the bar listens to the session: a new unread count repaints the
+      // badge, not every tab's navigator above it.
+      bottomNavigationBar: ListenableBuilder(
+        listenable: _market,
+        builder: (context, _) {
+          final all = tabsWith(unread: _market.unreadCount);
+          final visible = [
+            for (var i = 0; i < all.length; i++)
+              if (i != _marketTab || _marketShown) i,
+          ];
+          return _BrutalNavBar(
+            tabs: [for (final i in visible) all[i]],
+            index: visible.indexOf(shown),
+            onTap: (pos) => _go(visible[pos]),
+          );
+        },
+      ),
     );
   }
 }
 
 class _TabSpec {
-  const _TabSpec(this.label, this.icon, this.color);
+  const _TabSpec(this.label, this.icon, this.color, {this.badge = 0});
   final String label;
   final IconData icon;
   final Color color;
+
+  /// Unread marketplace messages - the only tab that has anything to count.
+  final int badge;
 }
 
 /// Custom nav bar - Material's BottomNavigationBar cannot do the hard-shadow,
@@ -336,7 +431,14 @@ class _NavItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(spec.icon, size: 21, color: Brutal.ink),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(spec.icon, size: 21, color: Brutal.ink),
+                if (spec.badge > 0)
+                  Positioned(right: -14, top: -8, child: UnreadBadge(count: spec.badge)),
+              ],
+            ),
             const SizedBox(height: 3),
             Text(
               spec.label,

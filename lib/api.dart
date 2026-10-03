@@ -6,16 +6,24 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
+import 'market/models.dart';
 import 'models.dart';
 import 'prefs.dart';
+
+part 'market/market_api.dart';
 
 /// Thrown for any non-2xx response or transport failure, with a message that is
 /// safe to show the user.
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode, this.retryAfter});
+  ApiException(this.message, {this.statusCode, this.retryAfter, this.code});
 
   final String message;
   final int? statusCode;
+
+  /// The server's machine-readable reason, where it gives one: "unauthorized",
+  /// "name_required", "closed", "stale". Branch on this and on [statusCode],
+  /// never on [message] - that is localised and written for people.
+  final String? code;
 
   /// How long until a rate limit frees up, when the server said so. Computed
   /// server-side from a sliding window, so it is when a slot genuinely opens -

@@ -19,6 +19,8 @@ import 'package:sejbosejbo/models.dart';
 import 'package:sejbosejbo/music.dart';
 import 'package:sejbosejbo/prefs.dart';
 import 'package:sejbosejbo/screens/detail.dart';
+import 'package:sejbosejbo/market/screens/market.dart';
+import 'package:sejbosejbo/screens/donate.dart';
 import 'package:sejbosejbo/screens/upload.dart';
 import 'package:sejbosejbo/theme.dart';
 import 'package:sejbosejbo/store_update.dart';
@@ -68,12 +70,63 @@ void main() {
     return prefs;
   }
 
-  testWidgets('shell renders with all four tabs', (tester) async {
+  testWidgets('shell renders with all five tabs', (tester) async {
     await pumpApp(tester);
     expect(find.text('HOME'), findsOneWidget);
     expect(find.text('GALLERY'), findsOneWidget);
     expect(find.text('UPLOAD'), findsOneWidget);
+    expect(find.text('MARKET'), findsOneWidget);
     expect(find.text('SUPPORT'), findsOneWidget);
+  });
+
+  testWidgets('no marketplace tab until the server has the marketplace', (tester) async {
+    // Today's sejbosejbo.fyi: every unknown /api/v1 path is a redirect to the
+    // HTML 404 page. An app released before the website ships the API must
+    // show no marketplace at all - not a tab that says "not yet".
+    tester.view.physicalSize = const Size(414, 896);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final prefs = await Prefs.load();
+    final api = Api(
+      baseUrl: 'https://example.test',
+      useDemoData: false,
+      prefs: prefs,
+      client: MockClient((_) async => http.Response('<html>404</html>', 404, headers: {'content-type': 'text/html'})),
+    );
+    final donations = DonationGateway(api);
+    addTearDown(donations.dispose);
+    await tester.pumpWidget(
+      L10n(
+        strings: Strings.of(Lang.en),
+        onChange: (_) {},
+        child: MaterialApp(theme: Brutal.theme(), home: Shell(api: api, donations: donations, prefs: prefs)),
+      ),
+    );
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+
+    expect(find.text('MARKET'), findsNothing);
+    expect(find.text('SUPPORT'), findsOneWidget);
+
+    // Four tabs showing, five navigators behind them: the fourth button must
+    // still open Support, not the hidden marketplace.
+    await tester.tap(find.text('SUPPORT'));
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+    expect(find.byType(DonateScreen), findsOneWidget);
+    expect(find.byType(MarketScreen), findsNothing);
+  });
+
+  testWidgets('five tab labels fit a narrow phone in Slovenian', (tester) async {
+    // The longest labels are Slovenian (GALERIJA, TRŽNICA). A fifth tab takes
+    // a fifth of the width from each of the other four; on a 360dp phone that
+    // must still not overflow.
+    await pumpApp(tester, size: const Size(360, 780), lang: Lang.sl);
+    expect(find.text('TRŽNICA'), findsOneWidget);
+    expect(find.text('GALERIJA'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('dashboard shows stats and the latest post', (tester) async {
@@ -93,6 +146,57 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       expect(tester.takeException(), isNull, reason: '$label tab overflowed or threw');
     }
+  });
+
+  testWidgets("Android's back button goes back a screen, not out of the app", (tester) async {
+    // Each tab has its own Navigator, but the system back button is delivered
+    // to the root one - which only holds the shell. Without a handler routing
+    // it into the active tab, one press from a post closed the whole app.
+    await pumpApp(tester);
+    await tester.tap(find.text('Microwaved a salad').first);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+    expect(find.byType(PostDetailScreen), findsOneWidget);
+
+    // Exactly what the platform sends when the back button is pressed. The
+    // page then animates out; Android's zoom transition takes most of a second.
+    await tester.binding.handlePopRoute();
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+
+    expect(find.byType(PostDetailScreen), findsNothing, reason: 'back did not reach the tab');
+    expect(find.text('HOME'), findsOneWidget, reason: 'the shell is gone - back left the app');
+  });
+
+  testWidgets('back pops only the tab you are on', (tester) async {
+    // Every tab's back handler is called on every press - disabled ones too.
+    // With a post open on two tabs, one press must close one of them.
+    Future<void> settle() async {
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+    }
+
+    await pumpApp(tester);
+    await tester.tap(find.text('Microwaved a salad').first);
+    await settle();
+    expect(find.byType(PostDetailScreen), findsOneWidget);
+
+    await tester.tap(find.text('GALLERY'));
+    await settle();
+    await tester.tap(find.byType(PostCard).first);
+    await settle();
+    expect(find.byType(PostDetailScreen), findsOneWidget, reason: 'gallery post open');
+
+    await tester.binding.handlePopRoute();
+    await settle();
+    expect(find.byType(PostDetailScreen), findsNothing, reason: 'gallery post closed');
+
+    await tester.tap(find.text('HOME'));
+    await settle();
+    expect(find.byType(PostDetailScreen), findsOneWidget, reason: "back on Gallery closed Home's post too");
   });
 
   testWidgets('post detail opens and shows the certification stamp', (tester) async {

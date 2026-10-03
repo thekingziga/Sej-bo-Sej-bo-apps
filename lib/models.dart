@@ -448,6 +448,11 @@ class Links {
   static String marketplace(String lang) =>
       'https://sejbosejbo.fyi/marketplace?lang=$lang';
 
+  /// One listing on the website - what "share" sends. It opens in a browser
+  /// rather than the app on purpose: App Links cover /post only. See
+  /// [marketplace].
+  static String listing(int id) => 'https://sejbosejbo.fyi/marketplace/$id';
+
   /// Where the update button goes. The `market:` scheme opens the Play app
   /// directly; the https form is the fallback for anything without it,
   /// including a desktop browser.

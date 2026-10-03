@@ -204,7 +204,12 @@ class _BrutalButtonState extends State<BrutalButton> {
           child: DefaultTextStyle.merge(
             style: Brutal.label.copyWith(fontSize: 16, color: Brutal.ink),
             textAlign: TextAlign.center,
-            child: Center(widthFactor: widget.expand ? null : 1, child: widget.child),
+            // heightFactor: a button is as tall as its content, always. Without
+            // it, Center fills any bounded height it is given - harmless in a
+            // scrolling list, where the height is unbounded, but a floating
+            // action button gets the whole screen's height and became a pink
+            // column down one side of the marketplace.
+            child: Center(widthFactor: widget.expand ? null : 1, heightFactor: 1, child: widget.child),
           ),
         ),
       ),

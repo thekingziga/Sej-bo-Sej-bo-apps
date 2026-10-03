@@ -265,7 +265,7 @@ class _UploadScreenState extends State<UploadScreen> {
                   }),
                 ),
                 const SizedBox(height: 22),
-                _Field(
+                BrutalField(
                   label: t['labelTitle'],
                   hint: t['hintTitle'],
                   controller: _title,
@@ -273,7 +273,7 @@ class _UploadScreenState extends State<UploadScreen> {
                   onChanged: (_) => _onEdited(),
                 ),
                 const SizedBox(height: 18),
-                _Field(
+                BrutalField(
                   label: t['labelStory'],
                   hint: t['hintStory'],
                   controller: _story,
@@ -572,60 +572,6 @@ class _DashPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _Field extends StatelessWidget {
-  const _Field({
-    required this.label,
-    required this.hint,
-    required this.controller,
-    required this.maxLength,
-    this.maxLines = 1,
-    this.onChanged,
-  });
-
-  final String label;
-  final String hint;
-  final TextEditingController controller;
-  final int maxLength;
-  final int maxLines;
-  final ValueChanged<String>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label.toUpperCase(), style: Brutal.label.copyWith(fontSize: 13)),
-        const SizedBox(height: 7),
-        Container(
-          decoration: BoxDecoration(
-            color: Brutal.paper,
-            border: Brutal.outline,
-            boxShadow: Brutal.shadow(dx: 4, dy: 4),
-          ),
-          child: TextField(
-            controller: controller,
-            maxLength: maxLength,
-            maxLines: maxLines,
-            onChanged: onChanged,
-            style: Brutal.body.copyWith(fontSize: 17),
-            cursorColor: Brutal.ink,
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: Brutal.body.copyWith(
-                fontSize: 17,
-                color: Brutal.ink.withValues(alpha: 0.35),
-              ),
-              counterText: '',
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 

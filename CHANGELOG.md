@@ -9,6 +9,49 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.18.0+25
+
+**Fixed**
+- **Android's back button closed the app from any opened screen.** Open a post
+  from Home or the Gallery, press back, and you were on the launcher. Every
+  tab has its own navigator, but the system back button is delivered to the
+  root one, which only holds the tab bar - so it had nothing to go back to but
+  out. It is routed into the tab you are on now. That needed one more guard:
+  Flutter calls every tab's back handler on every press, disabled ones
+  included, so without checking which tab is showing, one press would have
+  closed an open post on every tab at once. Both are tested and
+  mutation-checked; the first is how the app has behaved since tabs got their
+  own navigators.
+- **A button given a bounded height grew to fill it.** `BrutalButton` centred
+  its label with no height factor, which never showed in scrolling lists but
+  turned a floating button into a pink column down one side of the screen.
+
+**Added - dormant until the website ships its API**
+- **The marketplace, natively in the app**, in the website's own style: a
+  two-column grid with search and sort, the yellow price tag and the rotated
+  red SOLD stamp, listing pages, selling with a photo, an inbox where unread
+  threads are yellow, chat with offers that turn green when accepted, block
+  and report, and an account page with in-app account deletion, which Play
+  requires of any app that creates accounts.
+- **Login by emailed code**, because the website's emailed *link* signs in a
+  browser, and claiming those links for the app would break login on the web.
+- **The tab appears on its own when the server has the marketplace.** The app
+  asks once at launch; against today's server there is no tab at all. This
+  release ships with the marketplace invisible, and lights up without another
+  update once `docs/API_REQUEST_marketplace.md` is implemented - which is why
+  Data safety has to be updated *before* that deploy, not after it.
+- Until then the whole thing runs against a built-in demo marketplace in
+  debug builds, which is what the 25 new tests and the on-device walkthrough
+  exercised: browse, log in, reopen an existing thread rather than start a
+  duplicate, accept an offer, see a reply arrive by polling, sell, delete the
+  account.
+
+```
+Android's back button now goes back one screen, instead of closing the app.
+```
+
+---
+
 ## 1.17.0+24
 
 **Added**
