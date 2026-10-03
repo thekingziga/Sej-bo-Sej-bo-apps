@@ -110,11 +110,40 @@ in memory for the rate-limit window and never written to the database. If you
 would rather over-declare, put it under Device or other IDs with the security
 purpose - over-declaring is never a violation.
 
+### Email address *(since 1.18.0 - the marketplace)*
+- Collected: **yes**. Shared: **no**. **Optional** - only for people who log in
+  to sell or message.
+- Purposes: **Account management** (logging in by emailed code) and **App
+  functionality** (the "you have a new message" email).
+
+### Name *(since 1.18.0)*
+Play counts a nickname as a name, and the marketplace display name is one.
+- Collected: **yes**. Shared: **no**. Optional. Purposes: **Account
+  management** and **App functionality** - it is shown to the other person in
+  a conversation.
+
+### Other in-app messages *(since 1.18.0)*
+Marketplace conversations and offers.
+- Collected: **yes**. Shared: **no** - delivering a message to the person it
+  was written to is the user's own action, not a transfer to a third party.
+  Optional. Purpose: **App functionality**.
+
+Listing photos, titles and descriptions are already covered above, under
+Photos and videos and Other user-generated content.
+
 ### Other answers
 - Encrypted in transit: **yes** (HTTPS only; plain HTTP returns 503).
-- Users can request data deletion: **yes** - via the in-app report flow and the
-  contact address in the policy. There are no accounts to delete.
+- Users can create an account: **yes** (since 1.18.0, marketplace only).
+- Account deletion: **in the app** (Market → account → Delete my account) and
+  **on the web** at `https://sejbosejbo.fyi/account`, which asks a signed-out
+  visitor to log in and then returns them there. That URL is what goes in the
+  Data safety "delete account" field.
 - Data collection is required, not optional, only for the device id.
+
+### Why this was declared before the marketplace was live
+The marketplace tab switches itself on when the website ships its API, with
+no app release and so no new review. Over-declaring a feature that is not on
+yet is never a violation; under-declaring on the day it goes live is.
 
 ---
 
