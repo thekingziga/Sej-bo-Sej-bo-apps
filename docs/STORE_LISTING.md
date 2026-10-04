@@ -53,12 +53,18 @@ WHAT YOU CAN DO
 - Get a notification when something new lands, if you want one. One per post,
   nothing else, and you can switch it off.
 - Share anything to your group chat, where it belongs.
+- Buy and sell stuff on Sejbo Market. Browse listings, message sellers and make
+  offers. You settle the deal yourselves - no money moves through the app.
 
-NO ACCOUNTS, NO ADS, NO TRACKING
+NO ADS, NO TRACKING
 
-There is no sign-up. There is no login. There are no ads, no analytics, and
-nothing following you around. You do not hand over an email address to look at
-a picture of someone microwaving a salad.
+Browsing, posting, voting and commenting need no account and no login. There
+are no ads, no analytics, and nothing following you around. You do not hand
+over an email address to look at a picture of someone microwaving a salad.
+
+The one exception is Sejbo Market: to sell or message someone, you log in with
+a code sent to your email - no password. Nobody else ever sees your address,
+and you can delete the account and everything in it from inside the app.
 
 Posting is anonymous by design.
 
@@ -66,10 +72,10 @@ ENGLISH AND SLOVENIAN
 
 Switch languages any time from the home screen. The whole app follows.
 
-RUNS ON A RASPBERRY PI
+RUNS ON ONE OLD COMPUTER
 
-No cloud, no data centre - just a very small computer in a cupboard, quietly
-archiving humanity's worst decisions. If you want to keep it awake, there is an
+No cloud, no data centre - just one small, old computer, quietly archiving
+humanity's worst decisions. If you want to keep it awake, there is an
 entirely optional tip jar. It unlocks nothing. Everything in the app is free,
 forever, whether you tip or not.
 
@@ -101,11 +107,18 @@ KAJ LAHKO POČNEŠ
 - Obvestilo, ko pride kaj novega, če ga želiš. Eno na objavo, nič drugega, in
   kadarkoli ga lahko izklopiš.
 - Deli karkoli v skupinski klepet, kamor tudi spada.
+- Kupuj in prodajaj na Sejbo tržnici. Brskaj po oglasih, piši prodajalcem in
+  daj ponudbo. Kupčijo sklenete sami - denar ne gre prek aplikacije.
 
-BREZ RAČUNOV, BREZ OGLASOV, BREZ SLEDENJA
+BREZ OGLASOV, BREZ SLEDENJA
 
-Ni registracije. Ni prijave. Ni oglasov, ni analitike in nič ti ne sledi. Za
-ogled slike nekoga, ki greje solato v mikrovalovki, ne rabiš dati e-pošte.
+Za brskanje, objavljanje, glasovanje in komentiranje ne rabiš računa ne
+prijave. Ni oglasov, ni analitike in nič ti ne sledi. Za ogled slike nekoga, ki
+greje solato v mikrovalovki, ne rabiš dati e-pošte.
+
+Izjema je Sejbo tržnica: za prodajo ali pisanje sporočil se prijaviš s kodo, ki
+jo dobiš po e-pošti - brez gesla. Tvojega naslova ne vidi nihče drug, račun in
+vse v njem pa lahko izbrišeš kar v aplikaciji.
 
 Objavljanje je anonimno po dizajnu.
 
@@ -113,10 +126,10 @@ ANGLEŠČINA IN SLOVENŠČINA
 
 Jezik lahko zamenjaš kadarkoli na domačem zaslonu.
 
-TEČE NA RASPBERRY PI-JU
+TEČE NA ENEM STAREM RAČUNALNIKU
 
-Brez oblaka, brez podatkovnega centra - samo zelo majhen računalnik v omari, ki
-tiho arhivira najslabše odlocitve človeštva. Če ga želiš ohraniti budnega,
+Brez oblaka, brez podatkovnega centra - samo en majhen, star računalnik, ki
+tiho arhivira najslabše odločitve človeštva. Če ga želiš ohraniti budnega,
 obstaja povsem neobvezna napitnina. Ne odklene ničesar. Vse v aplikaciji je
 brezplačno, za vedno.
 

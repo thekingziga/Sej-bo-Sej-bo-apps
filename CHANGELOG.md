@@ -46,8 +46,23 @@ Each entry has a **Play release notes** block, already trimmed to Play's
   duplicate, accept an offer, see a reply arrive by polling, sell, delete the
   account.
 
+The website shipped the API on 2026-10-04, before this release went out, so
+these notes announce the marketplace after all. Checked against the live
+server: the tab appears on its own, real listings and photos load, and every
+error the app branches on comes back exactly as the contract says.
+
 ```
-Android's back button now goes back one screen, instead of closing the app.
+New: Sejbo Market. Buy and sell stuff right in the app - browse listings, message sellers and make offers. Log in with a code sent to your email, no password.
+
+Also: Android's back button now goes back one screen instead of closing the app.
+```
+
+Slovenian:
+
+```
+Novo: Sejbo tržnica. Kupuj in prodajaj kar v aplikaciji - brskaj po oglasih, piši prodajalcem in daj ponudbo. Prijava s kodo, ki jo dobiš po e-pošti, brez gesla.
+
+Poleg tega: gumb za nazaj na Androidu zdaj gre en zaslon nazaj, namesto da zapre aplikacijo.
 ```
 
 ---
