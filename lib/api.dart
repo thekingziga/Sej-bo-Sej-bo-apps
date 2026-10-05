@@ -66,6 +66,24 @@ class ApiException implements Exception {
 /// The endpoints do not exist on sejbosejbo.fyi yet. Until they ship, set
 /// [useDemoData] (the default when [baseUrl] is empty) and the app runs on the
 /// bundled sample feed so the UI is fully explorable.
+/// What happened to an upload that the server accepted.
+sealed class UploadResult {
+  const UploadResult();
+}
+
+/// Live now.
+class UploadPublished extends UploadResult {
+  const UploadPublished(this.post);
+  final Post post;
+}
+
+/// Saved but hidden until an admin approves it. [message] is the server's
+/// own, localised wording.
+class UploadHeld extends UploadResult {
+  const UploadHeld(this.message);
+  final String message;
+}
+
 class Api {
   Api({String? baseUrl, http.Client? client, bool? useDemoData, this.prefs})
     : baseUrl = (baseUrl ?? const String.fromEnvironment('API_BASE_URL')).trim(),
@@ -498,7 +516,7 @@ class Api {
   /// [onProgress] receives bytes sent and the total. A 500MB video takes
   /// minutes on mobile data, and an upload with no visible movement is
   /// indistinguishable from a hung one.
-  Future<Post> createPost({
+  Future<UploadResult> createPost({
     required String title,
     required String description,
     String? mediaPath,
@@ -518,6 +536,10 @@ class Api {
     // lang so the server's own 413/415 wording comes back in the user's
     // language - those messages are shown verbatim.
     final req = http.MultipartRequest('POST', _uri('/posts', {'lang': lang}))
+      // X-Device-Id: the server counts its 3-an-hour limit per device as well
+      // as per IP, so without it everyone behind one mobile carrier IP shares
+      // a single allowance.
+      ..headers.addAll(_headers)
       ..fields['title'] = title
       ..fields['description'] = description;
 
@@ -574,13 +596,16 @@ class Api {
 
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      // 413 names the size and the ceiling, 415 names the type, 429 the wait -
-      // all already localised, so they are shown exactly as sent.
+      // 409 duplicate, 413 the size and the ceiling, 415 the type, 422 a
+      // repost from another network, 429 the wait - all already localised,
+      // so they are shown exactly as sent.
       String msg = 'Upload rejected (${streamed.statusCode}).';
       Duration? retryAfter;
+      String? code;
       try {
         final j = jsonDecode(body) as Map<String, dynamic>;
         if (j['error'] is String) msg = j['error'] as String;
+        if (j['code'] is String) code = j['code'] as String;
         final secs = (j['retry_after_seconds'] as num?)?.toInt();
         if (secs != null && secs > 0) retryAfter = Duration(seconds: secs);
       } catch (_) {}
@@ -588,9 +613,16 @@ class Api {
         final h = int.tryParse(streamed.headers['retry-after'] ?? '');
         return h != null && h > 0 ? Duration(seconds: h) : null;
       }();
-      throw ApiException(msg, statusCode: streamed.statusCode, retryAfter: retryAfter);
+      throw ApiException(msg, statusCode: streamed.statusCode, retryAfter: retryAfter, code: code);
     }
-    return Post.fromJson(jsonDecode(body) as Map<String, dynamic>);
+    final j = jsonDecode(body) as Map<String, dynamic>;
+    // 202: saved, but screening wants a human to look first. Not an error -
+    // and there is no post to open until an admin approves it.
+    if (streamed.statusCode == 202) {
+      final m = j['message'];
+      return UploadHeld(m is String && m.isNotEmpty ? m : 'Your post is waiting for approval.');
+    }
+    return UploadPublished(Post.fromJson(j));
   }
 
   static String _mb(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(0)}MB';

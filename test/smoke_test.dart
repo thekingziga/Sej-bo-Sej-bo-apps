@@ -1484,6 +1484,72 @@ void main() {
             .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 240))),
       );
     });
+
+    test('201 is published and opens the post', () async {
+      final api = build();
+      final r = await api.createPost(title: 't', description: 'x');
+      expect(r, isA<UploadPublished>().having((r) => r.post.id, 'id', 1));
+    });
+
+    test('202 held is not an error - it carries the server message', () async {
+      // Screening (website 1.42.0) can hold a post for an admin. It is saved,
+      // so throwing would tell the user it failed and invite a re-upload -
+      // which the server then refuses as a duplicate.
+      final api = build(
+        status: 202,
+        body: jsonEncode({'status': 'held', 'message': 'Objava čaka na odobritev.'}),
+      );
+      final r = await api.createPost(title: 't', description: 'x');
+      expect(r, isA<UploadHeld>().having((r) => r.message, 'message', 'Objava čaka na odobritev.'));
+    });
+
+    test('409 duplicate and 422 repost keep their code and wording', () async {
+      for (final (status, code, message) in [
+        (409, 'duplicate', 'To datoteko je nekdo že objavil.'),
+        (422, 'repost', 'Videov s TikToka ne sprejemamo.'),
+        (429, 'rate_limited', 'Največ 3 objave na uro.'),
+      ]) {
+        final api = build(status: status, body: jsonEncode({'error': message, 'code': code}));
+        await expectLater(
+          () => api.createPost(title: 't', description: 'x'),
+          throwsA(isA<ApiException>()
+              .having((e) => e.statusCode, 'status', status)
+              .having((e) => e.code, 'code', code)
+              .having((e) => e.message, 'message', message)),
+        );
+      }
+    });
+
+    test('uploads send X-Device-Id, with and without progress', () async {
+      // The 3-an-hour limit is counted per device as well as per IP; without
+      // the header, everyone behind one carrier IP shares one allowance.
+      final prefs = await Prefs.load();
+      for (final progress in [null, (int _, int _) {}]) {
+        sent = [];
+        final api = Api(
+          baseUrl: 'https://example.test',
+          useDemoData: false,
+          prefs: prefs,
+          client: MockClient.streaming((req, bytes) async {
+            sent.add(req);
+            await bytes.toBytes();
+            return http.StreamedResponse(
+              Stream.value(utf8.encode(
+                  jsonEncode({'id': 1, 'title': 't', 'kind': 'image', 'created_at': ''}))),
+              201,
+            );
+          }),
+        );
+        await api.createPost(
+          title: 't',
+          description: '',
+          mediaBytes: file([0xFF, 0xD8, 0xFF]),
+          onProgress: progress,
+        );
+        expect(sent.single.headers['X-Device-Id'], prefs.deviceId);
+        expect(sent.single.headers['content-type'], startsWith('multipart/form-data; boundary='));
+      }
+    });
   });
 
   group('donation tiers', () {

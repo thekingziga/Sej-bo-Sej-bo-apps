@@ -9,6 +9,44 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.18.1+26
+
+For website 1.42.0, which screens every upload before publishing it.
+
+**Fixed**
+- **Uploads did not send `X-Device-Id`.** Votes and comments did, the upload
+  request did not. The server now limits posting to 3 an hour per IP *and*
+  per device, so without it everyone behind one mobile carrier IP would share
+  a single allowance. Tested with and without the progress wrapper, and
+  mutation-checked.
+
+**Changed**
+- **A post held for approval is no longer an error.** The server answers
+  `202 {"status":"held","message"}` when screening wants a human to look
+  first. The app used to try to parse that as a post. It now shows the
+  server's message and goes back to the Gallery - there is nothing to open
+  until an admin approves it. Treating it as a failure would also have
+  invited a re-upload, which the server refuses as a duplicate.
+- **"Checking your post…" after the last byte.** Screening adds 5-15 seconds
+  after the upload finishes; the button now says so and spins again instead
+  of sitting on 100%.
+- `409 duplicate`, `422 repost` and the new `429` (3 an hour) are shown in the
+  server's own localised words, and their `code` is kept on the error.
+
+### Play release notes
+
+**en-US**
+```
+Uploads now get a quick check before they go live, so the last step takes a few seconds longer. If a post needs a human to look at it first, the app tells you instead of showing an error.
+```
+
+**sl**
+```
+Objave so pred objavo na hitro preverjene, zato zadnji korak traja nekaj sekund dlje. Če mora objavo najprej pogledati človek, ti aplikacija to pove, namesto da pokaže napako.
+```
+
+---
+
 ## 1.18.0+25
 
 **Fixed**

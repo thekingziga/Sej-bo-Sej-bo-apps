@@ -14,9 +14,13 @@ import '../widgets.dart';
 import 'detail.dart';
 
 class UploadScreen extends StatefulWidget {
-  const UploadScreen({super.key, required this.api});
+  const UploadScreen({super.key, required this.api, this.onHeld});
 
   final Api api;
+
+  /// After a post is held for approval there is nothing to open, so the shell
+  /// takes the user back to the feed.
+  final VoidCallback? onHeld;
 
   @override
   State<UploadScreen> createState() => _UploadScreenState();
@@ -192,7 +196,7 @@ class _UploadScreenState extends State<UploadScreen> {
       // from a path - reading a 500MB video into memory to upload it would
       // take the app out with it.
       final useBytes = media == null && (kIsWeb || _picked == null);
-      final post = await widget.api.createPost(
+      final result = await widget.api.createPost(
         title: _title.text.trim(),
         description: _story.text.trim(),
         mediaPath: media?.path ?? (useBytes ? null : _picked!.path),
@@ -211,9 +215,19 @@ class _UploadScreenState extends State<UploadScreen> {
         _preview = null;
         _media = null;
       });
-      await Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)));
+      switch (result) {
+        case UploadPublished(:final post):
+          await Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)));
+        case UploadHeld(:final message):
+          // Not a failure: it is saved, just not visible yet. Said in the
+          // server's words, on the way back to the feed.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message), duration: const Duration(seconds: 8)),
+          );
+          widget.onHeld?.call();
+      }
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
@@ -319,13 +333,19 @@ class _UploadScreenState extends State<UploadScreen> {
                               child: CircularProgressIndicator(
                                 strokeWidth: 3,
                                 color: Brutal.ink,
-                                value: _progress,
+                                // Spins again while the server screens it.
+                                value: (_progress ?? 0) >= 1 ? null : _progress,
                               ),
                             ),
                             const SizedBox(width: 12),
                             Text(
+                              // Every byte is in, but the server screens the
+                              // post before answering - 5 to 15 seconds stuck
+                              // on 100% would look hung.
                               _progress == null
                                   ? t['uploading']
+                                  : _progress! >= 1
+                                  ? t['uploadChecking']
                                   : '${t['uploading']} ${(_progress! * 100).round()}%',
                               style: const TextStyle(fontSize: 15),
                             ),
