@@ -9,6 +9,42 @@ Each entry has a **Play release notes** block, already trimmed to Play's
 
 ---
 
+## 1.18.2+27
+
+For website 1.43.0 and 1.44.0: comments and listings are screened too, and
+accounts and devices can be banned.
+
+**Changed**
+- **A held comment is not an error.** `202 held` shows the server's message,
+  clears the field so it is not sent twice, and keeps it out of the thread.
+  Comments now send `?lang=` so held, duplicate (409), banned and rate-limit
+  messages come back in Slovenian.
+- **A held listing is not an error, and is not opened.** Its public page would
+  404 until reviewed, so the app shows the server's message and goes back to
+  the market instead of opening it.
+- **My listings show IN REVIEW / HIDDEN** (`V PREGLEDU` / `SKRITO`) for
+  listings the server marks `hidden`/`held`. Tapping one explains why instead
+  of opening a page that 404s.
+- **Banned (403 `banned`)** on posting, commenting or selling shows the
+  server's wording as-is.
+- One result type for all three - `Published` or `Held` - replaces the
+  upload-only one from 1.18.1. `X-Device-Id` on `POST /listings` was already
+  sent; it is now tested. Held tests are mutation-checked.
+
+### Play release notes
+
+**en-US**
+```
+New comments and marketplace listings get a quick check before they go live. If one needs a human to look at it first, the app tells you instead of showing an error, and your listings show "In review" until then.
+```
+
+**sl**
+```
+Novi komentarji in oglasi na tržnici so pred objavo na hitro preverjeni. Če mora kaj najprej pogledati človek, ti aplikacija to pove, namesto da pokaže napako, tvoji oglasi pa do takrat kažejo »V pregledu«.
+```
+
+---
+
 ## 1.18.1+26
 
 For website 1.42.0, which screens every upload before publishing it.

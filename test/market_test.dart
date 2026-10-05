@@ -12,6 +12,8 @@ import 'package:sejbosejbo/market/screens/chat.dart';
 import 'package:sejbosejbo/market/screens/market.dart';
 import 'package:sejbosejbo/market/session.dart';
 import 'package:sejbosejbo/market/widgets.dart';
+import 'package:sejbosejbo/prefs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sejbosejbo/theme.dart';
 
 /// A server that answers one canned response per path and records what it got.
@@ -23,9 +25,10 @@ class _Server {
   final requests = <http.BaseRequest>[];
   final bodies = <String>[];
 
-  Api api() => Api(
+  Api api({Prefs? prefs}) => Api(
     baseUrl: 'https://example.test',
     useDemoData: false,
+    prefs: prefs,
     client: MockClient.streaming((req, bytes) async {
       requests.add(req);
       bodies.add(utf8.decode(await bytes.toBytes(), allowMalformed: true));
@@ -217,7 +220,7 @@ void main() {
         photoBytes: jpeg,
         onProgress: (_, _) {},
       );
-      expect(created.id, 9);
+      expect(created, isA<Published<Listing>>().having((r) => r.value.id, 'id', 9));
       final req = server.requests.single;
       expect(req.headers['Authorization'], 'Bearer tok');
       // The same multipart boundary bug that broke uploads in 1.16.0 would
@@ -226,6 +229,58 @@ void main() {
       final body = server.bodies.single;
       expect(body, contains('name="photo"'));
       expect(body, contains('name="price"\r\n\r\n12.50'));
+    });
+
+    test('202 held is a result, not an error, and X-Device-Id goes along', () async {
+      // Website 1.43: a listing can be held for review. Its public page 404s,
+      // so the app must not try to open it. 1.44: the device id feeds the
+      // safety log and device bans.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      final server = _Server({
+        '/listings': (202, {'status': 'held', 'id': 12, 'message': 'Oglas čaka na pregled.'}, {}),
+      });
+      final r = await server.api(prefs: prefs).createListing(
+        token: 'tok',
+        title: 'Kolo',
+        description: '',
+        priceCents: 0,
+        photoBytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, ...List.filled(64, 0)]),
+      );
+      expect(r, isA<Held<Listing>>().having((r) => r.message, 'message', 'Oglas čaka na pregled.'));
+      expect(server.requests.single.headers['X-Device-Id'], prefs.deviceId);
+    });
+
+    test('403 banned on a listing shows the server wording as-is', () async {
+      final server = _Server({
+        '/listings': (403, {'error': 'Tvoj račun je blokiran.', 'code': 'banned'}, {}),
+      });
+      final e = await server
+          .api()
+          .createListing(
+            token: 'tok',
+            title: 'Kolo',
+            description: '',
+            priceCents: 0,
+            photoBytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, ...List.filled(64, 0)]),
+          )
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      expect(e, isA<ApiException>().having((e) => e.code, 'code', 'banned'));
+      expect(marketError(Strings.sl, e!), 'Tvoj račun je blokiran.');
+    });
+
+    test('my listings read hidden and held', () async {
+      final server = _Server({
+        '/me/listings': (200, {
+          'items': [
+            {..._listingJson(id: 1), 'hidden': true, 'held': true},
+            {..._listingJson(id: 2), 'hidden': true, 'held': false},
+            _listingJson(id: 3),
+          ],
+        }, {}),
+      });
+      final mine = await server.api().myListings(token: 'tok');
+      expect([for (final l in mine) (l.hidden, l.held)], [(true, true), (true, false), (false, false)]);
     });
 
     test('a listing photo must be a photo - refused before anything is sent', () async {

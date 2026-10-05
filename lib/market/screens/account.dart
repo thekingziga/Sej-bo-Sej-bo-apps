@@ -237,7 +237,12 @@ class _AccountScreenState extends State<AccountScreen> {
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: GestureDetector(
-            onTap: () => _open(l),
+            // A hidden listing's public page 404s - say why instead.
+            onTap: l.hidden
+                ? () => ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(t[l.held ? 'listingHeldNote' : 'listingHiddenNote'])),
+                  )
+                : () => _open(l),
             behavior: HitTestBehavior.opaque,
             child: Container(
               padding: const EdgeInsets.all(8),
@@ -264,7 +269,16 @@ class _AccountScreenState extends State<AccountScreen> {
                           children: [
                             PriceTag(cents: l.priceCents),
                             const SizedBox(width: 8),
-                            if (l.isSold)
+                            if (l.hidden)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(color: kHot, border: Brutal.outline),
+                                child: Text(
+                                  t[l.held ? 'listingHeld' : 'listingHidden'],
+                                  style: Brutal.label.copyWith(fontSize: 11),
+                                ),
+                              )
+                            else if (l.isSold)
                               Text(t['marketSold'], style: Brutal.label.copyWith(fontSize: 11))
                             else if (l.expiresAt != null && l.expiresAt!.isBefore(now))
                               Text(t['accountExpired'], style: Brutal.body.copyWith(fontSize: 12)),

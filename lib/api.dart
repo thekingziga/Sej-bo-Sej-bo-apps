@@ -66,21 +66,32 @@ class ApiException implements Exception {
 /// The endpoints do not exist on sejbosejbo.fyi yet. Until they ship, set
 /// [useDemoData] (the default when [baseUrl] is empty) and the app runs on the
 /// bundled sample feed so the UI is fully explorable.
-/// What happened to an upload that the server accepted.
-sealed class UploadResult {
-  const UploadResult();
+/// What happened to something the server accepted - a post, a comment, a
+/// listing. Since website 1.42 every one of them is screened first, and any
+/// can come back `202 held` instead of live.
+sealed class Submitted<T> {
+  const Submitted();
+
+  /// The 202 body, or null for anything else. Held is not an error: the thing
+  /// is saved, so throwing would invite a re-send the server refuses as a
+  /// duplicate.
+  static Held<T>? heldFrom<T>(int status, Map<String, dynamic>? body) {
+    if (status != 202) return null;
+    final m = body?['message'];
+    return Held<T>(m is String && m.isNotEmpty ? m : 'Waiting for approval.');
+  }
 }
 
 /// Live now.
-class UploadPublished extends UploadResult {
-  const UploadPublished(this.post);
-  final Post post;
+class Published<T> extends Submitted<T> {
+  const Published(this.value);
+  final T value;
 }
 
-/// Saved but hidden until an admin approves it. [message] is the server's
-/// own, localised wording.
-class UploadHeld extends UploadResult {
-  const UploadHeld(this.message);
+/// Saved but hidden until an admin approves it. There is nothing to open yet.
+/// [message] is the server's own, localised wording.
+class Held<T> extends Submitted<T> {
+  const Held(this.message);
   final String message;
 }
 
@@ -228,7 +239,10 @@ class Api {
   /// The device id goes along - optional here, unlike voting - purely so this
   /// install can recognise its own comments later. The server never exposes it,
   /// so comments stay anonymous to everyone including us.
-  Future<Comment> addComment(int postId, String body) async {
+  ///
+  /// Screened since website 1.43, so it can come back [Held]. `lang` so held,
+  /// duplicate, banned and rate-limit messages arrive in the user's language.
+  Future<Submitted<Comment>> addComment(int postId, String body, {String lang = 'en'}) async {
     final text = body.trim();
     if (text.isEmpty) throw ApiException('Write something first.');
     if (text.length > Comment.maxLength) {
@@ -245,14 +259,14 @@ class Api {
         createdAt: DateTime.now(),
       );
       list.add(c);
-      return c;
+      return Published(c);
     }
 
     late http.Response res;
     try {
       res = await _client
           .post(
-            _uri('/posts/$postId/comments'),
+            _uri('/posts/$postId/comments', {'lang': lang}),
             headers: {..._headers, 'Content-Type': 'application/json'},
             body: jsonEncode({'body': text}),
           )
@@ -270,15 +284,19 @@ class Api {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       // The 400s carry a useful message ("Comment is too long (max 1000
       // characters).") - prefer the server's wording over inventing our own.
+      // 409 duplicate and 403 banned likewise.
       String msg = 'Comment rejected (${res.statusCode}).';
+      String? code;
       try {
         final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
         if (j['error'] is String) msg = j['error'] as String;
+        if (j['code'] is String) code = j['code'] as String;
       } catch (_) {}
-      throw ApiException(msg, statusCode: res.statusCode);
+      throw ApiException(msg, statusCode: res.statusCode, code: code);
     }
 
-    return Comment.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
+    final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    return Submitted.heldFrom<Comment>(res.statusCode, j) ?? Published(Comment.fromJson(j));
   }
 
   /// Votes on a comment. Same semantics as [vote]: 1, -1, or 0 to withdraw.
@@ -516,7 +534,7 @@ class Api {
   /// [onProgress] receives bytes sent and the total. A 500MB video takes
   /// minutes on mobile data, and an upload with no visible movement is
   /// indistinguishable from a hung one.
-  Future<UploadResult> createPost({
+  Future<Submitted<Post>> createPost({
     required String title,
     required String description,
     String? mediaPath,
@@ -616,13 +634,7 @@ class Api {
       throw ApiException(msg, statusCode: streamed.statusCode, retryAfter: retryAfter, code: code);
     }
     final j = jsonDecode(body) as Map<String, dynamic>;
-    // 202: saved, but screening wants a human to look first. Not an error -
-    // and there is no post to open until an admin approves it.
-    if (streamed.statusCode == 202) {
-      final m = j['message'];
-      return UploadHeld(m is String && m.isNotEmpty ? m : 'Your post is waiting for approval.');
-    }
-    return UploadPublished(Post.fromJson(j));
+    return Submitted.heldFrom<Post>(streamed.statusCode, j) ?? Published(Post.fromJson(j));
   }
 
   static String _mb(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(0)}MB';

@@ -104,7 +104,7 @@ class _SellScreenState extends State<SellScreen> {
     });
     try {
       final photo = _photo!;
-      final listing = await widget.session.authed((tk) => widget.api.createListing(
+      final result = await widget.session.authed((tk) => widget.api.createListing(
             token: tk,
             title: _title.text,
             description: _desc.text,
@@ -117,7 +117,18 @@ class _SellScreenState extends State<SellScreen> {
               if (mounted && total > 0) setState(() => _progress = sent / total);
             },
           ));
-      if (mounted) Navigator.of(context).pop(listing);
+      if (!mounted) return;
+      switch (result) {
+        case Published(value: final listing):
+          Navigator.of(context).pop(listing);
+        case Held(:final message):
+          // Saved, but hidden until reviewed - its public page would 404, so
+          // there is nothing to open. It shows in the account's own listings.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message), duration: const Duration(seconds: 8)),
+          );
+          Navigator.of(context).pop();
+      }
     } catch (e) {
       if (mounted) setState(() => _error = marketError(t, e));
     } finally {

@@ -89,6 +89,8 @@ class Listing {
     this.expiresAt,
     this.isMine = false,
     this.myConversationId,
+    this.hidden = false,
+    this.held = false,
   });
 
   final int id;
@@ -110,6 +112,11 @@ class Listing {
   /// reopen it rather than start a second one the server would refuse.
   final int? myConversationId;
 
+  /// Not public (only ever true in the seller's own list). Its public page
+  /// 404s, so it must not be opened. [held] narrows it: waiting for review.
+  final bool hidden;
+  final bool held;
+
   bool get isSold => status == ListingStatus.sold;
 
   factory Listing.fromJson(Map<String, dynamic> j) => Listing(
@@ -124,6 +131,8 @@ class Listing {
     expiresAt: DateTime.tryParse(j['expires_at'] as String? ?? ''),
     isMine: j['is_mine'] == true,
     myConversationId: (j['my_conversation_id'] as num?)?.toInt(),
+    hidden: j['hidden'] == true,
+    held: j['held'] == true,
   );
 
   Listing copyWith({ListingStatus? status, int? myConversationId}) => Listing(
@@ -138,6 +147,8 @@ class Listing {
     expiresAt: expiresAt,
     isMine: isMine,
     myConversationId: myConversationId ?? this.myConversationId,
+    hidden: hidden,
+    held: held,
   );
 }
 

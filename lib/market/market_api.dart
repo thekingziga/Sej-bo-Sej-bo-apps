@@ -170,7 +170,10 @@ extension MarketApi on Api {
   /// Publishes a listing. The photo is required and must be an image - the
   /// website's own form takes nothing else - so anything else is refused here
   /// before a byte is sent.
-  Future<Listing> createListing({
+  ///
+  /// Can come back [Held] (website 1.43): saved, visible only in the seller's
+  /// own listings, and its public page 404s until it is approved.
+  Future<Submitted<Listing>> createListing({
     required String token,
     required String title,
     required String description,
@@ -183,7 +186,7 @@ extension MarketApi on Api {
   }) async {
     if (_demo) {
       await Future<void>.delayed(const Duration(milliseconds: 600));
-      return _md.create(token, title, description, priceCents);
+      return Published(_md.create(token, title, description, priceCents));
     }
 
     final req = http.MultipartRequest('POST', _uri('/listings', {'lang': lang}))
@@ -228,7 +231,8 @@ extension MarketApi on Api {
       throw ApiException('Upload failed. Check your connection and try again.');
     }
     final res = await http.Response.fromStream(streamed);
-    return Listing.fromJson(_decodeMarket(res)!);
+    final j = _decodeMarket(res)!;
+    return Submitted.heldFrom<Listing>(res.statusCode, j) ?? Published(Listing.fromJson(j));
   }
 
   Future<Listing> markSold(int id, {required String token, String lang = 'en'}) async {

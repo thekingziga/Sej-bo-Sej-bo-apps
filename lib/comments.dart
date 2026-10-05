@@ -203,7 +203,25 @@ class _CommentsSectionState extends State<CommentsSection> {
 
     final t = L10n.of(context);
     try {
-      final created = await widget.api.addComment(widget.postId, _controller.text);
+      final result = await widget.api.addComment(widget.postId, _controller.text, lang: t.code);
+      if (result case Held(:final message)) {
+        // Saved but not shown until approved: clear the field so it is not
+        // sent twice, and keep it out of the list.
+        if (!mounted) return;
+        setState(() {
+          _controller.clear();
+          _sending = false;
+        });
+        _focus.unfocus();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text(message, style: Brutal.body.copyWith(fontSize: 15)),
+          ),
+        );
+        return;
+      }
+      final created = (result as Published<Comment>).value;
       await widget.prefs?.rememberComment(created.id);
       if (!mounted) return;
       setState(() {

@@ -216,11 +216,11 @@ class _UploadScreenState extends State<UploadScreen> {
         _media = null;
       });
       switch (result) {
-        case UploadPublished(:final post):
+        case Published(value: final post):
           await Navigator.of(
             context,
           ).push(MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)));
-        case UploadHeld(:final message):
+        case Held(:final message):
           // Not a failure: it is saved, just not visible yet. Said in the
           // server's words, on the way back to the feed.
           ScaffoldMessenger.of(context).showSnackBar(

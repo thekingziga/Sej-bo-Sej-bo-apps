@@ -1488,7 +1488,7 @@ void main() {
     test('201 is published and opens the post', () async {
       final api = build();
       final r = await api.createPost(title: 't', description: 'x');
-      expect(r, isA<UploadPublished>().having((r) => r.post.id, 'id', 1));
+      expect(r, isA<Published<Post>>().having((r) => r.value.id, 'id', 1));
     });
 
     test('202 held is not an error - it carries the server message', () async {
@@ -1500,7 +1500,7 @@ void main() {
         body: jsonEncode({'status': 'held', 'message': 'Objava čaka na odobritev.'}),
       );
       final r = await api.createPost(title: 't', description: 'x');
-      expect(r, isA<UploadHeld>().having((r) => r.message, 'message', 'Objava čaka na odobritev.'));
+      expect(r, isA<Held<Post>>().having((r) => r.message, 'message', 'Objava čaka na odobritev.'));
     });
 
     test('409 duplicate and 422 repost keep their code and wording', () async {
@@ -1676,11 +1676,37 @@ void _commentTests() {
         'created_at': '2026-08-14T19:40:00.000Z',
       }));
 
-      final c = await api.addComment(57, '  hello  ');
+      final r = await api.addComment(57, '  hello  ', lang: 'sl');
       expect(sent.single.url.path, '/api/v1/posts/57/comments');
+      expect(sent.single.url.queryParameters['lang'], 'sl');
       expect(jsonDecode(sent.single.body), {'body': 'hello'});
+      final c = (r as Published<Comment>).value;
       expect(c.id, 8);
       expect(c.body, 'hello');
+    });
+
+    test('202 held comment is a result with the server message', () async {
+      // Website 1.43 screens comments. Held means saved but not shown: the
+      // screen clears the field and does not add it to the list.
+      final api = build(202, jsonEncode({'status': 'held', 'message': 'Komentar čaka na odobritev.'}));
+      final r = await api.addComment(1, 'x');
+      expect(r, isA<Held<Comment>>().having((r) => r.message, 'message', 'Komentar čaka na odobritev.'));
+    });
+
+    test('409 duplicate and 403 banned comments keep code and wording', () async {
+      for (final (status, code, message) in [
+        (409, 'duplicate', 'Ta komentar si že poslal.'),
+        (403, 'banned', 'Tvoj račun je blokiran.'),
+      ]) {
+        final api = build(status, jsonEncode({'error': message, 'code': code}));
+        await expectLater(
+          () => api.addComment(1, 'x'),
+          throwsA(isA<ApiException>()
+              .having((e) => e.statusCode, 'status', status)
+              .having((e) => e.code, 'code', code)
+              .having((e) => e.message, 'message', message)),
+        );
+      }
     });
 
     test('sends the device id so this install can badge its own comments', () async {
